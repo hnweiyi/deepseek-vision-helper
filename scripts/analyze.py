@@ -8,8 +8,10 @@
                     [--no-downscale] [--multi] [--serial] [--no-task-check]
   python analyze.py --doctor [--json] [--config 路径]   # 健康检查，无需图片
 
-任务类型 --task：general / ocr / error / ui / chart / compare / document /
-                 math_stem / detail / video / unknown
+任务类型 --task（英文名 + 中文名）：
+  general 通用 / ocr 文字提取 / error 报错定位 / ui 界面分析
+  chart 图表解读 / compare 多图对比 / document 文档结构化
+  math_stem 数理题 / detail 细节观察 / video 视频帧 / unknown 未知兜底
   主模型先根据用户需求粗判 task（明确则直接定，模糊则 general）；脚本会用 Agnes
   校验 task 是否正确，错误则自动重新设定并重跑一次。
 

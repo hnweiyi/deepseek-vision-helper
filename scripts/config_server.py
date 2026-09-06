@@ -87,7 +87,12 @@ HTML = r'''<!DOCTYPE html>
   .frow label.ck { flex-direction: row; align-items: center; gap: 4px; padding-bottom: 6px; font-size: 13px; color: #1a1b1c; }
   .hint { font-size: 12px; color: #8a94a6; margin: 4px 0 0; }
   #chain-table-wrap .scroll { }
-  #multi-tasks label { margin-right: 12px; display: inline-block; font-size: 13px; }
+  #multi-tasks { display: grid; grid-template-columns: repeat(auto-fill, minmax(255px, 1fr)); gap: 6px 10px; }
+  #multi-tasks .mt-card { display: flex; flex-wrap: wrap; align-items: baseline; margin: 0; padding: 5px 8px; border: 1px solid #e4e8ee; border-radius: 6px; background: #fafbfc; cursor: pointer; font-size: 13px; line-height: 1.5; }
+  #multi-tasks .mt-card:hover { border-color: #7aa5f0; background: #f3f7fe; }
+  #multi-tasks .mt-card input { width: auto; transform: scale(1.15); margin-right: 6px; vertical-align: -2px; cursor: pointer; }
+  #multi-tasks .mt-card .mt-en { font-family: Consolas, Menlo, monospace; font-size: 12px; color: #4a6cf7; margin-left: 5px; }
+  #multi-tasks .mt-card .mt-desc { width: 100%; margin: 1px 0 0 21px; color: #8a94a6; font-size: 12px; }
   .chainnum { color: #8a94a6; }
   .missing { color: #c62828; }
   .upd { color: #1a56db; font-weight: 600; }
@@ -143,11 +148,7 @@ HTML = r'''<!DOCTYPE html>
   <section class="panel">
     <h2>② 路由 routing（质量链按顺序降级；显示名称 + 实际模型 id）</h2>
     <div class="toolbar">
-      <select id="chain-select">
-        <option value="default_chain">默认链 default_chain</option>
-        <option value="math_stem">math_stem（特化）</option>
-        <option value="chart">chart（特化）</option>
-      </select>
+      <select id="chain-select"></select>
       <span id="chain-title" style="font-size:12px;color:#666"></span>
     </div>
     <div class="scroll">
@@ -166,7 +167,8 @@ HTML = r'''<!DOCTYPE html>
       <select id="chain-add-select"></select>
       <button class="mini ok" onclick="addToChain()">加入</button>
     </div>
-    <h3 style="margin:14px 0 6px;font-size:13px;color:#444">多模型任务 multi_tasks（并发多模型 + agnes 汇总）</h3>
+    <h3 style="margin:14px 0 6px;font-size:13px;color:#444">多模型任务 multi_tasks（勾选的任务会并发多模型分析 + agnes 汇总成一份）</h3>
+    <p class="hint" style="margin:2px 0 8px">每项 = 一种分析意图：勾选后该任务会同时让多个模型分析再汇总，结果更全面但更耗额度。</p>
     <div id="multi-tasks"></div>
   </section>
 
@@ -185,6 +187,24 @@ HTML = r'''<!DOCTYPE html>
 
 </div>
 <script>const ALL_TASKS = ["general","ocr","error","ui","chart","compare","document","math_stem","detail","video","unknown"];
+const TASK_INFO = {
+  general:   { zh: '通用',        desc: '综合看图：描述画面内容与要点（默认）' },
+  ocr:       { zh: '文字提取',    desc: 'OCR：逐字提取图中所有文字，适合截图/文档照片' },
+  error:     { zh: '报错定位',    desc: '从报错/异常截图里定位错误信息与原因' },
+  ui:        { zh: '界面分析',    desc: '分析软件/网页/App 界面布局与 UI 问题' },
+  chart:     { zh: '图表解读',    desc: '解读数据图表、流程图、报表（走 GLM 特化链）' },
+  compare:   { zh: '多图对比',    desc: '对比多张图片，指出异同与变化' },
+  document:  { zh: '文档结构化',  desc: '提取文档/扫描件/表格的结构化内容' },
+  math_stem: { zh: '数理题',      desc: '解答图中数学/理科题目并给出步骤（走 GLM 特化链）' },
+  detail:    { zh: '细节观察',    desc: '放大观察图片中的细节与微小差异' },
+  video:     { zh: '视频帧',      desc: '描述视频抽帧/截图的画面内容' },
+  unknown:   { zh: '未知兜底',    desc: '无法归类的兜底项，等同通用' }
+};
+function taskLabel(k){ const i = TASK_INFO[k]; return i ? (i.zh + ' ' + k) : k; }
+function chainLabel(k){
+  if (k === 'default_chain') return '默认链 default_chain';
+  return taskLabel(k) + '（特化）';
+}
 let cfg = null;
 let curChainKey = 'default_chain';
 let dirtyFlag = false;
@@ -348,7 +368,7 @@ function renderChain(){
   const tb = document.querySelector('#chain-table tbody');
   tb.innerHTML = '';
   const title = document.getElementById('chain-title');
-  title.textContent = curChainKey + '（' + chain.length + ' 个）';
+  title.textContent = chainLabel(curChainKey) + '（' + chain.length + ' 个）';
   if (!chain.length){
     const tr = document.createElement('tr');
     tr.innerHTML = '<td colspan="4" style="color:#8a94a6;text-align:center;padding:12px">（链为空，从下方把供应商加入链尾）</td>';
@@ -401,7 +421,10 @@ function renderMulti(){
   mt.innerHTML = '';
   if (!cfg.routing.multi_tasks) cfg.routing.multi_tasks = [];
   ALL_TASKS.forEach(function(t){
-    const lab = document.createElement('label');
+    const info = TASK_INFO[t] || { zh: t, desc: '' };
+    const card = document.createElement('label');
+    card.className = 'mt-card';
+    card.title = t + '：' + info.desc;
     const cb = document.createElement('input');
     cb.type = 'checkbox';
     cb.checked = cfg.routing.multi_tasks.indexOf(t) >= 0;
@@ -410,13 +433,38 @@ function renderMulti(){
       if (!cb.checked) cfg.routing.multi_tasks = cfg.routing.multi_tasks.filter(function(x){ return x !== t; });
       dirty();
     };
-    lab.appendChild(cb);
-    lab.appendChild(document.createTextNode(' ' + t));
-    mt.appendChild(lab);
+    const zh = document.createElement('span');
+    zh.textContent = info.zh;
+    const en = document.createElement('span');
+    en.className = 'mt-en';
+    en.textContent = t;
+    const desc = document.createElement('span');
+    desc.className = 'mt-desc';
+    desc.textContent = info.desc;
+    card.appendChild(cb);
+    card.appendChild(zh);
+    card.appendChild(en);
+    card.appendChild(desc);
+    mt.appendChild(card);
   });
 }
 
+function renderChainSelect(){
+  const sel = document.getElementById('chain-select');
+  const ov = cfg.routing.overrides || {};
+  const keys = ['default_chain'].concat(Object.keys(ov));
+  if (keys.indexOf(curChainKey) < 0) curChainKey = 'default_chain';
+  sel.innerHTML = '';
+  keys.forEach(function(k){
+    const o = document.createElement('option');
+    o.value = k;
+    o.textContent = chainLabel(k);
+    sel.appendChild(o);
+  });
+  sel.value = curChainKey;
+}
 function renderRouting(){
+  renderChainSelect();
   renderChain();
   renderChainAddSelect();
   renderMulti();
