@@ -50,276 +50,365 @@ HTML = r'''<!DOCTYPE html>
   body { font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif; margin: 0; background: #f5f6f8; color: #1a1b1c; }
   header { background: #1f6feb; color: #fff; padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; }
   header h1 { font-size: 18px; margin: 0; }
-  header button { background: #fff; color: #1f6feb; border: none; padding: 6px 14px; border-radius: 5px; cursor: pointer; font-weight: 600; }
+  header .hdr-btns button { background: #fff; color: #1f6feb; border: none; padding: 6px 16px; border-radius: 5px; cursor: pointer; font-weight: 600; margin-left: 8px; }
+  header .hdr-btns button#btn-save { background: #ffd33d; color: #1f2937; }
   #msg { padding: 8px 20px; font-size: 14px; color: #b45309; min-height: 18px; }
-  .cols { display: flex; gap: 16px; padding: 0 20px 16px; flex-wrap: wrap; }
-  .panel { background: #fff; border: 1px solid #e2e4e8; border-radius: 8px; padding: 14px; flex: 1 1 380px; }
-  .panel h2 { font-size: 15px; margin: 0 0 10px; }
-  .panel h3 { font-size: 13px; margin: 14px 0 6px; color: #444; }
-  ul, ol { list-style: none; padding: 0; margin: 0; }
-  #provider-list li, #chain-list li { padding: 7px 9px; border: 1px solid #e2e4e8; border-radius: 5px; margin-bottom: 5px; cursor: pointer; font-size: 13px; }
-  #provider-list li:hover, #chain-list li:hover { background: #f0f5ff; }
-  .sel { background: #dbe9ff !important; border-color: #1f6feb !important; }
-  label { font-size: 13px; }
-  .field { margin-bottom: 10px; }
-  .field span { display: block; font-size: 12px; color: #666; margin-bottom: 3px; }
-  .field input[type=text], .field input[type=password], .field input[type=number] { width: 100%; padding: 6px 8px; border: 1px solid #cbd0d8; border-radius: 5px; font-size: 13px; }
-  .field input[type=checkbox] { width: auto; }
-  button.mini { padding: 4px 10px; margin-right: 5px; border: 1px solid #cbd0d8; background: #fff; border-radius: 5px; cursor: pointer; }
-  #multi-tasks label { margin-right: 12px; display: inline-block; }
-  .chain-bar { margin-bottom: 6px; }
-  select { padding: 5px; border: 1px solid #cbd0d8; border-radius: 5px; }
+  #wrap { max-width: 1380px; margin: 0 auto; padding: 0 16px 24px; }
+  section.panel { background: #fff; border: 1px solid #e2e4e8; border-radius: 10px; padding: 14px 16px; margin-bottom: 16px; }
+  section.panel h2 { font-size: 15px; margin: 0 0 10px; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .toolbar { margin-bottom: 8px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .toolbar select, .toolbar input[type=text] { padding: 5px 8px; border: 1px solid #cbd0d8; border-radius: 5px; font-size: 13px; }
+  .scroll { overflow-x: auto; }
+  table.grid { border-collapse: collapse; width: 100%; min-width: 1160px; font-size: 13px; table-layout: fixed; }
+  table.grid th { background: #f0f4fb; color: #333; font-weight: 600; text-align: left; padding: 7px 8px; border-bottom: 1px solid #dbe1ea; white-space: nowrap; }
+  table.grid td { border-bottom: 1px solid #eef1f5; padding: 6px 8px; vertical-align: middle; }
+  table.grid tr:hover td { background: #fafcff; }
+  .c { text-align: center; }
+  td input[type=text], td input[type=password], td input[type=number] { width: 100%; border: 1px solid transparent; background: transparent; padding: 4px 6px; border-radius: 4px; font-size: 13px; font-family: inherit; color: inherit; }
+  td input:hover { border-color: #d0d7e2; background: #fff; }
+  td input:focus { border-color: #1f6feb; background: #fff; outline: none; }
+  td input[type=checkbox] { width: auto; transform: scale(1.15); cursor: pointer; }
+  .pname { font-weight: 600; color: #1f2937; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; margin-bottom: 2px; white-space: nowrap; }
+  .b-empty { background: #eceff3; color: #6b7280; }
+  .b-dpapi { background: #e6f4ea; color: #188038; }
+  .b-plain { background: #fef7e0; color: #b06000; }
+  .b-new { background: #e8f0fe; color: #1a56db; }
+  button.mini { padding: 4px 10px; margin-right: 5px; border: 1px solid #cbd0d8; background: #fff; border-radius: 5px; cursor: pointer; font-size: 13px; }
+  button.mini:hover { background: #f0f5ff; }
+  button.mini.danger:hover { background: #fdeaea; border-color: #e5a0a0; }
+  button.mini.ok:hover { background: #e6f4ea; border-color: #8fcaa0; }
+  .box { margin-top: 12px; border: 1px dashed #1f6feb; border-radius: 8px; padding: 12px; }
+  .box h3 { font-size: 13px; margin: 0 0 8px; color: #1f6feb; }
+  .frow { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 8px; }
+  .frow label { display: flex; flex-direction: column; font-size: 12px; color: #555; gap: 3px; }
+  .frow input[type=text], .frow input[type=password] { width: 180px; padding: 5px 8px; border: 1px solid #cbd0d8; border-radius: 5px; font-size: 13px; }
+  .frow input.wide { width: 320px; }
+  .frow label.ck { flex-direction: row; align-items: center; gap: 4px; padding-bottom: 6px; font-size: 13px; color: #1a1b1c; }
+  .hint { font-size: 12px; color: #8a94a6; margin: 4px 0 0; }
+  #chain-table-wrap .scroll { }
+  #multi-tasks label { margin-right: 12px; display: inline-block; font-size: 13px; }
+  .chainnum { color: #8a94a6; }
+  .missing { color: #c62828; }
+  .upd { color: #1a56db; font-weight: 600; }
+  #chain-add-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 13px; }
 </style>
-</head>
-<body>
+</head><body>
 <header>
   <h1>shijuefenxi 视觉配置</h1>
-  <div>
-    <button onclick="save()">保存</button>
+  <div class="hdr-btns">
+    <button id="btn-save" onclick="save()">保存配置</button>
     <button onclick="shutdown()">退出</button>
   </div>
 </header>
 <div id="msg"></div>
-<div class="cols">
-  <div class="panel">
-    <h2>模型供应商 providers <button class="mini" onclick="showAddForm()">+ 添加</button></h2>
-    <ul id="provider-list"></ul>
-    <div id="add-form" style="display:none; margin-top:10px; border:1px dashed #1f6feb; border-radius:6px; padding:10px;">
-      <h3>添加供应商</h3>
-      <div class="field"><span>name（唯一标识）</span><input type="text" id="a-name" placeholder="modelscope-30b"></div>
-      <div class="field"><span>group</span><input type="text" id="a-group" placeholder="modelscope / glm / agnes"></div>
-      <div class="field"><span>base_url</span><input type="text" id="a-base" placeholder="https://..."></div>
-      <div class="field"><span>model（多个候选逗号分隔）</span><input type="text" id="a-model" placeholder="Qwen/Qwen3-VL-30B-A3B-Instruct"></div>
-      <div class="field"><span>api_key</span><input type="password" id="a-key"></div>
-      <div class="field"><span>timeout（秒）</span><input type="text" id="a-timeout" value="60"></div>
-      <div class="field"><label><input type="checkbox" id="a-enabled" checked> 启用</label> <label><input type="checkbox" id="a-chain"> 加入 default_chain</label></div>
-      <button class="mini" onclick="addProvider()">确认添加</button>
-      <button class="mini" onclick="document.getElementById('add-form').style.display='none'">取消</button>
+<div id="wrap">
+
+  <section class="panel">
+    <h2><span>① 模型供应商 providers（表格内直接修改，改完点右上「保存配置」）</span>
+        <button class="mini ok" onclick="toggleAddForm()">+ 添加供应商</button></h2>
+    <div id="add-form" style="display:none" class="box">
+      <h3>添加供应商（name 为唯一标识；model 多个候选用英文逗号分隔）</h3>
+      <div class="frow">
+        <label>name<input type="text" id="a-name" placeholder="modelscope-30b"></label>
+        <label>group<input type="text" id="a-group" placeholder="modelscope / glm / agnes"></label>
+        <label>base_url<input type="text" id="a-base" class="wide" placeholder="https://..."></label>
+        <label>model<input type="text" id="a-model" class="wide" placeholder="Qwen/Qwen3-VL-30B-A3B-Instruct"></label>
+        <label>api_key<input type="password" id="a-key" placeholder="明文，保存时自动加密"></label>
+        <label>timeout(秒)<input type="text" id="a-timeout" value="60" style="width:70px"></label>
+        <label class="ck"><input type="checkbox" id="a-enabled" checked> 启用</label>
+        <label class="ck"><input type="checkbox" id="a-chain"> 加入 default_chain</label>
+        <button class="mini ok" onclick="addProvider()">确认添加</button>
+        <button class="mini" onclick="toggleAddForm()">取消</button>
+      </div>
     </div>
-    <div id="provider-form" style="display:none; margin-top:12px; border-top:1px solid #e2e4e8; padding-top:10px;">
-      <h3 id="f-title"></h3>
-      <div class="field"><span>api_key（留空表示保持不变；输入明文，保存时自动加密）</span><input type="password" id="f-key" placeholder=""></div>
-      <div class="field"><span>base_url</span><input type="text" id="f-base"></div>
-      <div class="field"><span>model（多个候选用英文逗号分隔）</span><input type="text" id="f-model"></div>
-      <div class="field"><label><input type="checkbox" id="f-enabled"> 启用</label></div>
-      <button class="mini" onclick="applyProvider()">应用到该供应商</button>
+    <div class="scroll">
+      <table class="grid" id="provider-table">
+        <thead><tr>
+          <th style="width:44px" class="c">启用</th>
+          <th style="width:120px">名称 name</th>
+          <th style="width:90px">厂商 group</th>
+          <th style="width:26%">模型 model</th>
+          <th style="width:24%">接口 base_url</th>
+          <th style="width:170px">API Key</th>
+          <th style="width:70px">timeout</th>
+          <th style="width:150px">操作</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
     </div>
-  </div>
-  <div class="panel">
-    <h2>路由 routing</h2>
-    <h3>质量顺序（选中一项后上移/下移）</h3>
-    <div class="chain-bar">
+    <p class="hint">提示：key 一栏留空 = 不修改原 key；输入明文保存时自动 DPAPI 加密。「测试」会先保存当前改动再实测该模型。</p>
+  </section>
+
+  <section class="panel">
+    <h2>② 路由 routing（质量链按顺序降级；显示名称 + 实际模型 id）</h2>
+    <div class="toolbar">
       <select id="chain-select">
         <option value="default_chain">默认链 default_chain</option>
         <option value="math_stem">math_stem（特化）</option>
         <option value="chart">chart（特化）</option>
       </select>
-      <button class="mini" onclick="moveChain(-1)">上移</button>
-      <button class="mini" onclick="moveChain(1)">下移</button>
+      <span id="chain-title" style="font-size:12px;color:#666"></span>
     </div>
-    <ol id="chain-list"></ol>
-    <h3>多模型任务 multi_tasks</h3>
+    <div class="scroll">
+      <table class="grid" id="chain-table" style="min-width:640px">
+        <thead><tr>
+          <th style="width:50px">顺序</th>
+          <th style="width:200px">名称 name</th>
+          <th>模型 model id</th>
+          <th style="width:180px">操作</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div id="chain-add-row">
+      <span>加入当前链尾：</span>
+      <select id="chain-add-select"></select>
+      <button class="mini ok" onclick="addToChain()">加入</button>
+    </div>
+    <h3 style="margin:14px 0 6px;font-size:13px;color:#444">多模型任务 multi_tasks（并发多模型 + agnes 汇总）</h3>
     <div id="multi-tasks"></div>
-  </div>
+  </section>
 
-  <div class="panel">
-    <h2>缓存 cache</h2>
-    <div class="field"><label><input type="checkbox" id="cache-enabled" onchange="cfg.cache.enabled=this.checked"> 启用答案缓存</label></div>
-    <div class="field"><span>有效期秒 ttl_seconds</span><input type="number" id="cache-ttl" min="1" value="3600" onchange="cfg.cache.ttl_seconds=parseInt(this.value)||3600"></div>
-    <div class="field"><span>最大条目 max_entries</span><input type="number" id="cache-max" min="1" value="200" onchange="cfg.cache.max_entries=parseInt(this.value)||200"></div>
-    <div class="field"><span>缓存目录（留空=config 同目录）dir</span><input type="text" id="cache-dir" placeholder="" oninput="cfg.cache.dir=this.value"></div>
-    <p style="font-size:12px;color:#666">缓存开关即时生效，保存后写入 config.json。</p>
-  </div>
+  <section class="panel">
+    <h2>③ 缓存 cache</h2>
+    <div class="frow">
+      <label class="ck"><input type="checkbox" id="cache-enabled" onchange="cfg.cache.enabled=this.checked; dirty()"> 启用答案缓存</label>
+    </div>
+    <div class="frow">
+      <label>有效期秒 ttl_seconds<input type="number" id="cache-ttl" min="1" value="3600" style="width:120px" onchange="cfg.cache.ttl_seconds=parseInt(this.value)||3600; dirty()"></label>
+      <label>最大条目 max_entries<input type="number" id="cache-max" min="1" value="200" style="width:120px" onchange="cfg.cache.max_entries=parseInt(this.value)||200; dirty()"></label>
+      <label>缓存目录（留空=config 同目录）<input type="text" id="cache-dir" placeholder="" style="width:280px" oninput="cfg.cache.dir=this.value; dirty()"></label>
+    </div>
+    <p class="hint">缓存开关即时生效，保存后写入 config.json；命中缓存不消耗 API 额度。</p>
+  </section>
+
 </div>
-<script>
+<script>const ALL_TASKS = ["general","ocr","error","ui","chart","compare","document","math_stem","detail","video","unknown"];
 let cfg = null;
-let selProvider = null;
-let selChain = null;
 let curChainKey = 'default_chain';
+let dirtyFlag = false;
 
-function msg(s) { document.getElementById('msg').textContent = s; }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+function msg(s){ document.getElementById('msg').textContent = s; }
+function dirty(){ dirtyFlag = true; document.getElementById('btn-save').textContent = '保存配置 *'; }
+function cleanDirty(){ dirtyFlag = false; document.getElementById('btn-save').textContent = '保存配置'; }
 
-function ensureCache() {
-  if (cfg.cache) return false;
+function keyStateOf(v){
+  v = v || '';
+  if (v === 'empty' || v === '') return {cls:'b-empty', txt:'未设置', ph:'输入 API Key'};
+  if (v === 'dpapi' || v.indexOf('dpapi:') === 0) return {cls:'b-dpapi', txt:'已加密', ph:'留空不变 / 输入新 key'};
+  if (v === 'plain') return {cls:'b-plain', txt:'明文', ph:'已是明文，可输入覆盖'};
+  return {cls:'b-new', txt:'新输入待保存', ph:'输入 API Key'};
+}
+function setBadge(elm, st){ elm.className = 'badge ' + st.cls; elm.textContent = st.txt; elm.nextElementSibling.placeholder = st.ph; }
+function parseModel(v){ const parts = String(v||'').split(',').map(function(s){ return s.trim(); }).filter(Boolean); return parts.length === 1 ? parts[0] : parts; }
+function modelStr(m){ return Array.isArray(m) ? m.join(', ') : String(m||''); }
+function providerByName(name){ return cfg.providers.find(function(p){ return p.name === name; }); }
+function modelLabel(name){
+  const p = providerByName(name);
+  if (!p) return '<span class="missing">未找到供应商</span>';
+  return esc(modelStr(p.model)) || '<span class="missing">（无 model）</span>';
+}
+function ensureCache(){
+  if (cfg.cache) return;
   cfg.cache = { enabled: true, ttl_seconds: 3600, max_entries: 200, dir: '' };
-  return true;
 }
-
-function renderCache() {
-  const c = cfg.cache || {};
-  document.getElementById('cache-enabled').checked = !!c.enabled;
-  document.getElementById('cache-ttl').value = c.ttl_seconds || 3600;
-  document.getElementById('cache-max').value = c.max_entries || 200;
-  document.getElementById('cache-dir').value = c.dir || '';
-}
-
-async function loadConfig() {
-  const r = await fetch('/api/config');
-  const d = await r.json();
-  if (!d.ok) { msg('加载失败: ' + d.error); return; }
-  cfg = d.config;
-  const cacheCreated = ensureCache();
-  renderProviders();
-  renderRouting();
-  renderCache();
-  if (cacheCreated) msg('已补默认缓存配置，保存时随配置写入');
-}
-
-function showAddForm() { document.getElementById('add-form').style.display = 'block'; }
-
-function addProvider() {
-  const name = document.getElementById('a-name').value.trim();
-  if (!name) { msg('请输入 name'); return; }
-  if (cfg.providers.some(p => p.name === name)) { msg('name 已存在: ' + name); return; }
-  const group = document.getElementById('a-group').value.trim() || 'other';
-  const base_url = document.getElementById('a-base').value.trim();
-  const m = document.getElementById('a-model').value.split(',').map(s => s.trim()).filter(Boolean);
-  const key = document.getElementById('a-key').value.trim();
-  const timeout = parseInt(document.getElementById('a-timeout').value) || 60;
-  const enabled = document.getElementById('a-enabled').checked;
-  const joinChain = document.getElementById('a-chain').checked;
-  const p = {
-    name: name, group: group, base_url: base_url,
-    model: m.length === 1 ? m[0] : m,
-    api_key: key || '', input_mode: 'base64', timeout: timeout, enabled: enabled
-  };
-  cfg.providers.push(p);
-  if (joinChain && !cfg.routing.default_chain.includes(name)) cfg.routing.default_chain.push(name);
-  ['a-name','a-group','a-base','a-model','a-key','a-timeout'].forEach(id => document.getElementById(id).value = '');
-  document.getElementById('a-enabled').checked = true;
-  document.getElementById('a-chain').checked = false;
-  document.getElementById('add-form').style.display = 'none';
-  renderProviders();
-  renderRouting();
-  msg('已添加 ' + name + '，点「保存」写入 config.json');
-}
-
-function renderProviders() {
-  const sorted = cfg.providers.map((p, i) => ({ p: p, i: i })).sort((a, b) => {
-    const ga = (a.p.group || '').localeCompare(b.p.group || '');
-    if (ga !== 0) return ga;
-    const ma = (Array.isArray(a.p.model) ? a.p.model[0] : (a.p.model || '')).localeCompare(
-               Array.isArray(b.p.model) ? b.p.model[0] : (b.p.model || ''));
-    return ma;
-  });
-  const ul = document.getElementById('provider-list');
-  ul.innerHTML = '';
-  sorted.forEach(({ p, i }) => {
-    const li = document.createElement('li');
-    const m = Array.isArray(p.model) ? p.model.join(', ') : (p.model || '');
-    const span = document.createElement('span');
-    span.textContent = p.name + '  [' + p.group + ']  ' + m + '  enabled=' + p.enabled + '  key=' + p.api_key;
-    const btnT = document.createElement('button');
-    btnT.className = 'mini';
-    btnT.textContent = '测试';
-    btnT.onclick = (e) => { e.stopPropagation(); testProvider(i); };
-    const btnD = document.createElement('button');
-    btnD.className = 'mini';
-    btnD.textContent = '删除';
-    btnD.onclick = (e) => { e.stopPropagation(); deleteProvider(i); };
-    li.appendChild(span);
-    li.appendChild(btnT);
-    li.appendChild(btnD);
-    li.onclick = () => selectProvider(i);
-    if (i === selProvider) li.className = 'sel';
-    ul.appendChild(li);
-  });
-}
-
-function deleteProvider(i) {
-  const p = cfg.providers[i];
-  const a = Math.floor(Math.random() * 9) + 1;
-  const b = Math.floor(Math.random() * (10 - a)) + 1;
-  let ans, q;
-  if (Math.random() < 0.5) {
-    const big = Math.max(a, b), small = Math.min(a, b);
-    ans = big - small; q = big + ' - ' + small;
-  } else {
-    ans = a + b; q = a + ' + ' + b;
-  }
-  const input = prompt('确认删除「' + p.name + '」？请计算：' + q + ' = ?（答对才删除）');
-  if (input === null) return;
-  if (parseInt(input, 10) !== ans) { msg('答错，未删除'); return; }
-  cfg.providers.splice(i, 1);
-  const chains = [cfg.routing.default_chain].concat(Object.values(cfg.routing.overrides || {}));
-  chains.forEach(ch => { if (Array.isArray(ch)) { for (let k = ch.length - 1; k >= 0; k--) { if (ch[k] === p.name) ch.splice(k, 1); } } });
-  if (selProvider === i) { selProvider = null; document.getElementById('provider-form').style.display = 'none'; }
-  renderProviders();
-  renderRouting();
-  msg('已删除 ' + p.name + '，点「保存」写入 config.json');
-}
-
-async function testProvider(i) {
-  const p = cfg.providers[i];
-  msg('正在测试 ' + p.name + ' ...');
-  try {
-    const r = await fetch('/api/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: p.name }) });
-    const d = await r.json();
-    if (!d.ok) { msg('测试失败: ' + d.error); return; }
-    const res = d.result;
-    msg(res.ok ? ('测试通过 ' + p.name + '（' + res.elapsed + 's）：' + (res.reply || '')) : ('测试失败 ' + p.name + '：' + (res.error || '')));
-  } catch (e) {
-    msg('测试异常: ' + e);
-  }
-}
-
-function selectProvider(i) {
-  selProvider = i;
-  const p = cfg.providers[i];
-  document.getElementById('f-title').textContent = '编辑 ' + p.name + '（group=' + p.group + '）';
-  document.getElementById('f-key').value = '';
-  document.getElementById('f-key').placeholder = p.api_key === 'dpapi' ? '已加密，留空保持不变' : (p.api_key === 'plain' ? '当前是明文，输入新值或留空' : '未设置，输入 key');
-  document.getElementById('f-base').value = p.base_url || '';
-  document.getElementById('f-model').value = Array.isArray(p.model) ? p.model.join(', ') : (p.model || '');
-  document.getElementById('f-enabled').checked = !!p.enabled;
-  document.getElementById('provider-form').style.display = 'block';
-  renderProviders();
-}
-
-function applyProvider() {
-  if (selProvider === null) return;
-  const p = cfg.providers[selProvider];
-  const key = document.getElementById('f-key').value.trim();
-  if (key) p.api_key = key;
-  p.base_url = document.getElementById('f-base').value.trim();
-  const m = document.getElementById('f-model').value.split(',').map(s => s.trim()).filter(Boolean);
-  p.model = m.length === 1 ? m[0] : m;
-  p.enabled = document.getElementById('f-enabled').checked;
-  renderProviders();
-  msg('已应用，点“保存”写入 config.json');
-}
-
-function getCurChain() {
+function getCurChain(){
   if (curChainKey === 'default_chain') return cfg.routing.default_chain;
   return (cfg.routing.overrides || {})[curChainKey];
 }
 
-function renderChain() {
-  const chain = getCurChain();
-  const ol = document.getElementById('chain-list');
-  ol.innerHTML = '';
-  if (!chain) { ol.innerHTML = '<li>（无此链）</li>'; return; }
-  chain.forEach((name, i) => {
-    const li = document.createElement('li');
-    li.textContent = (i + 1) + '. ' + name;
-    li.onclick = () => { selChain = i; renderChain(); };
-    if (i === selChain) li.className = 'sel';
-    ol.appendChild(li);
+/* ---------- providers ---------- */
+function providerRow(p){
+  const tr = document.createElement('tr');
+  tr.dataset.name = p.name;
+  const ks = keyStateOf(p.api_key);
+  const tdHtml =
+    '<td class="c"><input type="checkbox" class="p-en"' + (p.enabled ? ' checked' : '') + '></td>' +
+    '<td><span class="pname">' + esc(p.name) + '</span></td>' +
+    '<td><input type="text" class="p-group" value="' + esc(p.group || '') + '" placeholder="厂商"></td>' +
+    '<td><input type="text" class="p-model" value="' + esc(modelStr(p.model)) + '" placeholder="多候选逗号分隔"></td>' +
+    '<td><input type="text" class="p-base" value="' + esc(p.base_url || '') + '" placeholder="https://..."></td>' +
+    '<td><div class="p-keycell" style="display:flex;flex-direction:column;gap:3px;align-items:stretch">' +
+        '<span class="badge ' + ks.cls + '">' + ks.txt + '</span>' +
+        '<input type="password" class="p-key" placeholder="' + ks.ph + '"></div></td>' +
+    '<td><input type="number" class="p-timeout" value="' + esc(p.timeout == null ? 60 : p.timeout) + '" min="1"></td>' +
+    '<td style="white-space:nowrap"><button class="mini ok b-test">测试</button><button class="mini danger b-del">删除</button></td>';
+  tr.innerHTML = tdHtml;
+
+  const en = tr.querySelector('.p-en');
+  en.onchange = function(){ p.enabled = en.checked; dirty(); };
+
+  tr.querySelector('.p-group').oninput = function(e){ p.group = e.target.value.trim(); dirty(); };
+  tr.querySelector('.p-model').oninput = function(e){ p.model = parseModel(e.target.value); dirty(); };
+  tr.querySelector('.p-base').oninput = function(e){ p.base_url = e.target.value.trim(); dirty(); };
+  tr.querySelector('.p-timeout').oninput = function(e){ const n = parseInt(e.target.value, 10); p.timeout = (isNaN(n) || n < 1) ? 60 : n; dirty(); };
+
+  const keyInput = tr.querySelector('.p-key');
+  const badge = tr.querySelector('.badge');
+  const origKey = p.api_key;
+  keyInput.oninput = function(){
+    const v = keyInput.value;
+    if (v) { p.api_key = v; setBadge(badge, keyStateOf(v)); }
+    else { p.api_key = origKey; setBadge(badge, keyStateOf(origKey)); }
+    dirty();
+  };
+
+  tr.querySelector('.b-test').onclick = function(){ testProvider(p.name); };
+  tr.querySelector('.b-del').onclick = function(){ deleteProvider(p.name); };
+  return tr;
+}
+
+function renderProviders(){
+  const tb = document.querySelector('#provider-table tbody');
+  tb.innerHTML = '';
+  const arr = cfg.providers.map(function(p){ return p; });
+  arr.sort(function(a, b){
+    const g = (a.group || '').localeCompare(b.group || '');
+    if (g !== 0) return g;
+    return modelStr(a.model).localeCompare(modelStr(b.model));
+  });
+  if (!arr.length){
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="8" style="color:#8a94a6;text-align:center;padding:16px">暂无供应商，点右上「+ 添加供应商」添加</td>';
+    tb.appendChild(tr);
+  } else {
+    arr.forEach(function(p){ tb.appendChild(providerRow(p)); });
+  }
+}
+
+function toggleAddForm(){
+  const f = document.getElementById('add-form');
+  f.style.display = (f.style.display === 'none') ? 'block' : 'none';
+}
+
+function addProvider(){
+  const name = document.getElementById('a-name').value.trim();
+  if (!name){ msg('请输入 name'); return; }
+  if (cfg.providers.some(function(p){ return p.name === name; })){ msg('name 已存在: ' + name); return; }
+  const group = document.getElementById('a-group').value.trim() || 'other';
+  const base_url = document.getElementById('a-base').value.trim();
+  const m = parseModel(document.getElementById('a-model').value);
+  const key = document.getElementById('a-key').value.trim();
+  const timeout = parseInt(document.getElementById('a-timeout').value, 10) || 60;
+  const enabled = document.getElementById('a-enabled').checked;
+  const joinChain = document.getElementById('a-chain').checked;
+  cfg.providers.push({
+    name: name, group: group, base_url: base_url,
+    model: m, api_key: key || '', input_mode: 'base64', timeout: timeout, enabled: enabled
+  });
+  if (joinChain && cfg.routing.default_chain.indexOf(name) < 0) cfg.routing.default_chain.push(name);
+  ['a-name','a-group','a-base','a-model','a-key'].forEach(function(id){ document.getElementById(id).value = ''; });
+  document.getElementById('a-timeout').value = '60';
+  document.getElementById('a-enabled').checked = true;
+  document.getElementById('a-chain').checked = false;
+  document.getElementById('add-form').style.display = 'none';
+  renderAll();
+  msg('已添加 ' + name + '，点「保存配置」写入 config.json');
+  dirty();
+}
+
+async function testProvider(name){
+  msg('正在保存改动并测试 ' + name + ' ...');
+  const saved = await saveCore();
+  if (!saved) return;
+  try {
+    const r = await fetch('/api/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name }) });
+    const d = await r.json();
+    if (!d.ok){ msg('测试失败: ' + d.error); return; }
+    const res = d.result;
+    msg(res.ok ? ('测试通过 ' + name + '（' + res.elapsed + 's）：' + (res.reply || '')) : ('测试失败 ' + name + '：' + (res.error || '')));
+  } catch (e){ msg('测试异常: ' + e); }
+}
+
+async function deleteProvider(name){
+  const p = providerByName(name);
+  if (!p) return;
+  const a = Math.floor(Math.random() * 9) + 1;
+  const b = Math.floor(Math.random() * (10 - a)) + 1;
+  let ans, q;
+  if (Math.random() < 0.5){ const big = Math.max(a, b), small = Math.min(a, b); ans = big - small; q = big + ' - ' + small; }
+  else { ans = a + b; q = a + ' + ' + b; }
+  const input = prompt('确认删除「' + p.name + '」？请计算：' + q + ' = ?（答对才删除）');
+  if (input === null) return;
+  if (parseInt(input, 10) !== ans){ msg('答错，未删除'); return; }
+  cfg.providers = cfg.providers.filter(function(x){ return x.name !== name; });
+  [cfg.routing.default_chain].concat(Object.values(cfg.routing.overrides || {})).forEach(function(ch){
+    if (Array.isArray(ch)){ for (let k = ch.length - 1; k >= 0; k--){ if (ch[k] === name) ch.splice(k, 1); } }
+  });
+  renderAll();
+  msg('已删除 ' + name + '，点「保存配置」写入 config.json');
+  dirty();
+}
+
+/* ---------- routing ---------- */
+function renderChain(){
+  const chain = getCurChain() || [];
+  const tb = document.querySelector('#chain-table tbody');
+  tb.innerHTML = '';
+  const title = document.getElementById('chain-title');
+  title.textContent = curChainKey + '（' + chain.length + ' 个）';
+  if (!chain.length){
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="4" style="color:#8a94a6;text-align:center;padding:12px">（链为空，从下方把供应商加入链尾）</td>';
+    tb.appendChild(tr);
+    return;
+  }
+  chain.forEach(function(name, i){
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td class="chainnum">' + (i + 1) + '</td>' +
+      '<td><span class="pname">' + esc(name) + '</span></td>' +
+      '<td>' + modelLabel(name) + '</td>' +
+      '<td style="white-space:nowrap">' +
+        '<button class="mini b-up"' + (i === 0 ? ' disabled' : '') + '>↑上移</button>' +
+        '<button class="mini b-down"' + (i === chain.length - 1 ? ' disabled' : '') + '>↓下移</button>' +
+        '<button class="mini danger b-rm">移除</button></td>';
+    tr.querySelector('.b-up').onclick = function(){ moveInChain(name, -1); };
+    tr.querySelector('.b-down').onclick = function(){ moveInChain(name, 1); };
+    tr.querySelector('.b-rm').onclick = function(){ removeFromChain(name); };
+    tb.appendChild(tr);
   });
 }
 
-function renderRouting() {
-  renderChain();
+function renderChainAddSelect(){
+  const sel = document.getElementById('chain-add-select');
+  sel.innerHTML = '';
+  const chain = getCurChain() || [];
+  const sorted = cfg.providers.slice().sort(function(a, b){
+    const g = (a.group || '').localeCompare(b.group || '');
+    if (g !== 0) return g;
+    return modelStr(a.model).localeCompare(modelStr(b.model));
+  });
+  const avail = sorted.filter(function(p){ return chain.indexOf(p.name) < 0; });
+  if (!avail.length){
+    const o = document.createElement('option');
+    o.value = ''; o.textContent = '（没有可加入的供应商）';
+    sel.appendChild(o);
+    return;
+  }
+  avail.forEach(function(p){
+    const o = document.createElement('option');
+    o.value = p.name;
+    o.textContent = p.name + '  [' + (p.group || '') + '] ' + modelStr(p.model);
+    sel.appendChild(o);
+  });
+}
+
+function renderMulti(){
   const mt = document.getElementById('multi-tasks');
   mt.innerHTML = '';
-  ALL_TASKS.forEach(t => {
+  if (!cfg.routing.multi_tasks) cfg.routing.multi_tasks = [];
+  ALL_TASKS.forEach(function(t){
     const lab = document.createElement('label');
     const cb = document.createElement('input');
     cb.type = 'checkbox';
-    cb.checked = cfg.routing.multi_tasks.includes(t);
-    cb.onchange = () => {
-      if (cb.checked && !cfg.routing.multi_tasks.includes(t)) cfg.routing.multi_tasks.push(t);
-      if (!cb.checked) cfg.routing.multi_tasks = cfg.routing.multi_tasks.filter(x => x !== t);
+    cb.checked = cfg.routing.multi_tasks.indexOf(t) >= 0;
+    cb.onchange = function(){
+      if (cb.checked && cfg.routing.multi_tasks.indexOf(t) < 0) cfg.routing.multi_tasks.push(t);
+      if (!cb.checked) cfg.routing.multi_tasks = cfg.routing.multi_tasks.filter(function(x){ return x !== t; });
+      dirty();
     };
     lab.appendChild(cb);
     lab.appendChild(document.createTextNode(' ' + t));
@@ -327,35 +416,92 @@ function renderRouting() {
   });
 }
 
-document.getElementById('chain-select').onchange = (e) => {
-  curChainKey = e.target.value;
-  selChain = null;
+function renderRouting(){
   renderChain();
-};
+  renderChainAddSelect();
+  renderMulti();
+}
 
-function moveChain(d) {
+function moveInChain(name, d){
   const chain = getCurChain();
-  if (!chain || selChain === null || selChain < 0 || selChain >= chain.length) return;
-  const j = selChain + d;
-  if (j < 0 || j >= chain.length) return;
-  const tmp = chain[selChain];
-  chain[selChain] = chain[j];
-  chain[j] = tmp;
-  selChain = j;
-  renderChain();
+  const i = chain.indexOf(name);
+  const j = i + d;
+  if (i < 0 || j < 0 || j >= chain.length) return;
+  const tmp = chain[i]; chain[i] = chain[j]; chain[j] = tmp;
+  renderChain(); renderChainAddSelect();
+  dirty();
+}
+function removeFromChain(name){
+  const chain = getCurChain();
+  const i = chain.indexOf(name);
+  if (i < 0) return;
+  chain.splice(i, 1);
+  renderChain(); renderChainAddSelect();
+  dirty();
+}
+function addToChain(){
+  const sel = document.getElementById('chain-add-select');
+  const name = sel.value;
+  if (!name) return;
+  const chain = getCurChain();
+  if (chain.indexOf(name) < 0) chain.push(name);
+  renderChain(); renderChainAddSelect();
+  dirty();
 }
 
-async function save() {
-  const r = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ config: cfg }) });
-  const d = await r.json();
-  msg(d.ok ? '已保存到 config.json' : ('保存失败: ' + d.error));
-  if (d.ok) await loadConfig();
+/* ---------- cache ---------- */
+function renderCache(){
+  const c = cfg.cache || {};
+  document.getElementById('cache-enabled').checked = !!c.enabled;
+  document.getElementById('cache-ttl').value = c.ttl_seconds || 3600;
+  document.getElementById('cache-max').value = c.max_entries || 200;
+  document.getElementById('cache-dir').value = c.dir || '';
 }
 
-async function shutdown() {
-  await fetch('/api/shutdown');
+/* ---------- load / save ---------- */
+function renderAll(){
+  renderProviders();
+  renderRouting();
+  renderCache();
+}
+
+async function loadConfig(){
+  try {
+    const r = await fetch('/api/config');
+    const d = await r.json();
+    if (!d.ok){ msg('加载失败: ' + (d.error || '')); return false; }
+    cfg = d.config;
+    ensureCache();
+    if (!cfg.routing.multi_tasks) cfg.routing.multi_tasks = [];
+    renderAll();
+    cleanDirty();
+    return true;
+  } catch (e){ msg('加载异常: ' + e); return false; }
+}
+
+async function saveCore(){
+  if (!cfg) return false;
+  try {
+    const r = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ config: cfg }) });
+    const d = await r.json();
+    if (!d.ok){ msg('保存失败: ' + (d.error || '')); return false; }
+    await loadConfig();
+    msg('已保存到 config.json');
+    return true;
+  } catch (e){ msg('保存异常: ' + e); return false; }
+}
+async function save(){ await saveCore(); }
+
+async function shutdown(){
+  try { await fetch('/api/shutdown'); } catch (e) {}
   msg('已退出，可关闭此页面');
 }
+
+document.getElementById('chain-select').onchange = function(e){
+  curChainKey = e.target.value;
+  renderChain();
+  renderChainAddSelect();
+};
 
 loadConfig();
 </script>
@@ -624,3 +770,4 @@ def main(argv=None):
 
 if __name__ == "__main__":
     main()
+

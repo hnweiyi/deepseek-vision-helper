@@ -458,7 +458,7 @@ py -3.8 "<技能目录>\scripts\analyze.py" --doctor [--json]
 | 测试失败 `HTTP 404` | base_url 或 model 名不对，核对平台文档 |
 | 测试按钮说“模型可能不支持图片” | 真实图片测试：2xx 但返回空内容才会这样提示，换支持视觉的模型或检查接口 |
 | 结果不准（OCR 错字） | 改 `--task ocr` + `--max-size 2048` / `--no-downscale` 重试 |
-| 页面打不开配置工具 | 确认 pythonw 可用；手动命令行跑 `config_server.py --open` 看报错 |
+| 双击配置工具没弹页面 | ① 确认 .bat 是 CRLF 行尾（LF 会让 cmd 报 not recognized，用编辑器另存为 CRLF）；② 结束残留的 config_server 进程（任务管理器里 pythonw/pyw）；③ 命令行跑 `config_server.py --open` 看报错 |
 | 所有供应商都失败 | 用 `--doctor` 自查各供应商 key/连通性，再按失败块建议处理 |
 
 ---
