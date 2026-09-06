@@ -5,9 +5,9 @@ metadata:
   short-description: 通用图像理解 + 网页综合读取（半自动路由：任务→自动选模型组合）
 ---
 
-# shijuefenxi（视觉分析）
+# DeepSeek（通用）视觉助手（原 shijuefenxi / 视觉分析）
 
-把本地/远程图片交给视觉大模型，返回结构化中文描述；也可读取网页文字并识别其图片。**半自动路由引擎**：你只需判断任务类型，脚本自动完成“选模型 → 调模型 → 失败分类降级 → 额度熔断 → 多模型汇总”。
+把本地/远程图片交给视觉大模型，返回结构化中文描述；也可读取网页文字并识别其图片。**半自动路由引擎**：你只需判断任务类型，脚本自动完成“选模型 → 调模型 → 失败分类降级 → 额度熔断 → 多模型汇总 → 任务类型校验”。默认全部使用免费视觉模型（智谱 GLM / 魔搭 Qwen3-VL / Agnes）。本技能与 DeepSeek 官方无关联，仅为 DeepSeek 等纯文本模型补充视觉能力。
 
 ## 何时用
 - 用户让你看某张图、分析截图、识别报错、理解手绘草稿、读图表/UI/文档照片、比较前后截图等。
@@ -15,11 +15,11 @@ metadata:
 - 只要需要从图像中获取信息，就先走本技能，**不要靠猜**。
 
 ## 核心流程（主模型只做一件事：判断 --task）
-1. 判断用户需求类型，选择 `--task`（12 类）：
+1. 判断用户需求类型，选择 `--task`（11 类）：
    - `ocr` 逐字提取文字；`document` 长文档结构化；`error` 报错定位；
    - `math_stem` 数学/科学题；`chart` 图表解读；`detail` 高精度细节；
    - `ui` 界面/截图转代码；`general` 通用描述；`compare` 多图对比；
-   - `video` 视频帧/截图；`chat` 简单问答；`unknown` 兜底。
+   - `video` 视频帧/截图；`unknown` 兜底（等同 general）。
 2. 拿到图片的**本地路径**或 http(s) URL。
 3. 调用脚本（脚本自动按任务路由到最合适的模型组合）：
    ```bash
@@ -28,10 +28,12 @@ metadata:
 4. 读取返回的结构化文字（关键任务已由 agnes 汇总成**一份**），据此回复用户。
 
 ## 自动路由与多模型汇总（核心）
-- **厂商分组**：魔搭组（235b/8b）、智谱组（4.6v/4.1v-thinking/4v）、Agnes 组（2.5-flash）。
-- **按任务选首选 + 升级链**：`ocr/document` 首选魔搭 8b；`detail/error` 首选魔搭 235b；`math_stem/chart/unknown` 首选 glm；`chat/ui/general` 首选 agnes。
-- **失败按原因分类降级**：404/模型不存在→同组换模型；额度尽→跨组换厂商；429/超时→退避重试。
-- **关键任务自动多模型**：`math_stem/detail/error/compare` 三厂商并发各出最强，结果交给 agnes 汇总成一份（agnes 不通则返回多份，由你兜底汇总）。
+- **厂商分组**：魔搭组（235b / 8b-thinking / 8b）、智谱组（4.6v / 4.1v-thinking / 4v）、Agnes 组（2.5-flash）。
+- **质量优先默认链**（`default_chain`，通用任务）：235b → glm(4.6v) → glm-thinking(4.1v) → 8b-thinking → 8b → glm4v → agnes。
+- **特化覆盖**：`math_stem` / `chart` 首选 glm-thinking（GLM-4.1V-Thinking 数学/图表专项强项）。
+- **失败按原因分类降级**：404/模型不存在→同组换模型（或 provider 的候选数组）；额度尽→跨组换厂商；429/超时→退避重试。
+- **关键任务自动多模型**：`multi_tasks = error / math_stem / detail / compare` 三厂商并发各出最强，结果交给 agnes 汇总成一份（agnes 不通则返回多份，由你兜底汇总）。
+- **任务类型校验（task_check）**：识别返回后 agnes 判断 `--task` 是否合适，不合适输出 `TASK_CHANGE:xxx` 并用正确任务自动重跑一次（最多一次）。
 - **额度熔断**：魔搭本地按日计数（全局 2000 / 单模型 500），超限自动切 GLM/Agnes。
 
 ## 网页综合读取（文字 + 图片）
@@ -44,24 +46,26 @@ python "<本技能目录>/scripts/read_web.py" "<网页URL>" -f "<关注点>"
 ## 参数（analyze.py）
 - 位置参数：一个或多个图片路径/URL。
 - `-f, --focus`：关注点。
-- `--task`：任务类型（上述 12 类）。
+- `--task`：任务类型（上述 11 类）。
 - `--provider <name>`：强制用某个供应商（绕过路由）。
 - `--multi`：强制多模型并发 + agnes 汇总；`--serial`：强制单模型串行降级。
+- `--no-task-check`：关闭 agnes 任务类型校验。
 - `--json`：输出 JSON（多模型时含 `results` 与 `summarizer`）。
 - `--max-size N` / `--auto-trim` / `--brief` / `--no-downscale`：图片压缩与输出控制。
 - `--config <path>`：指定配置文件。
 
 ## 配置、路由与额度
-- 配置文件：`<本技能目录>/config.json`（`config.example.json` 是模板）。
-- `providers`：6 个供应商，每项含 `group`、`model`（可候选数组）、`api_key`、`enabled`。
-- `routing`：任务→路由矩阵（`chain` 首选/升级链 + `multi` 是否多模型）。
+- 配置文件：`<本技能目录>/config.json`（缺失时自动按 `config.example.json` 生成；`config.example.json` 是模板）。
+- `providers`：7 个供应商，每项含 `group`、`model`（可候选数组）、`api_key`、`enabled`。
+- `routing`：`default_chain`（默认降级链，缺省回退 providers 顺序）+ `overrides`（按 task 覆盖）+ `multi_tasks`（多模型任务清单）。
+- `task_check`：agnes 任务校验开关（默认 true）。
 - `summarizer`：多模型汇总器，默认 `agnes`。
 - `quota`：魔搭额度与限速（`global_daily` 2000、`per_model_daily` 500、`reserve_ratio` 0.2、`min_interval_sec` 5）。
-- **魔搭换模型**：只需改 `providers` 里魔搭项的 `model` 候选数组（例如把 `Qwen/Qwen3-VL-8B-Instruct` 换成新模型名），脚本 404 自动降级到下一候选，零代码改动。
+- **调整模型/顺序/多模型/额度全部只改 config，零改代码**：换魔搭模型只需改 `providers` 里魔搭项的 `model` 候选数组（例如把 `Qwen/Qwen3-VL-8B-Instruct` 换成新模型名），脚本 404 自动降级到下一候选。
 
 ## 图形化配置工具（推荐）
 双击 `<本技能目录>/配置工具.bat`，自动启动本地服务器（仅 127.0.0.1）并在浏览器打开配置界面，可编辑：
-- providers：api_key / base_url / model 候选 / enabled
+- providers：api_key / base_url / model 候选 / enabled / 新增 / 删除（答对计算题二次确认）/ 测试
 - routing：质量顺序（选中上移/下移）、multi_tasks 勾选
 保存时自动 dpapi 加密 key 并写回 config.json。
 
