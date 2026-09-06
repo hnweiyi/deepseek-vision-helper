@@ -1,0 +1,109 @@
+{
+  "providers": [
+    {
+      "name": "modelscope-235b",
+      "group": "modelscope",
+      "base_url": "https://api-inference.modelscope.cn/v1",
+      "model": ["Qwen/Qwen3-VL-235B-A22B-Instruct"],
+      "api_key": "在此填入魔搭 ModelScope token",
+      "input_mode": "base64",
+      "timeout": 120,
+      "enabled": true
+    },
+    {
+      "name": "glm",
+      "group": "glm",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "model": "glm-4.6v-flash",
+      "api_key": "在此填入智谱API Key；也可用 scripts/encrypt_key.py 生成 dpapi: 加密串",
+      "input_mode": "base64",
+      "timeout": 60,
+      "enabled": true
+    },
+    {
+      "name": "glm-thinking",
+      "group": "glm",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "model": "glm-4.1v-thinking-flash",
+      "api_key": "复用智谱API Key",
+      "input_mode": "base64",
+      "timeout": 90,
+      "enabled": true
+    },
+    {
+      "name": "modelscope-8b-thinking",
+      "group": "modelscope",
+      "base_url": "https://api-inference.modelscope.cn/v1",
+      "model": ["Qwen/Qwen3-VL-8B-Thinking"],
+      "api_key": "复用魔搭 ModelScope token",
+      "input_mode": "base64",
+      "timeout": 90,
+      "enabled": true
+    },
+    {
+      "name": "modelscope-8b",
+      "group": "modelscope",
+      "base_url": "https://api-inference.modelscope.cn/v1",
+      "model": ["Qwen/Qwen3-VL-8B-Instruct"],
+      "api_key": "复用魔搭 ModelScope token",
+      "input_mode": "base64",
+      "timeout": 90,
+      "enabled": true
+    },
+    {
+      "name": "glm4v",
+      "group": "glm",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "model": "glm-4v-flash",
+      "api_key": "复用智谱API Key",
+      "input_mode": "base64",
+      "timeout": 60,
+      "enabled": true
+    },
+    {
+      "name": "agnes",
+      "group": "agnes",
+      "base_url": "https://api.agnes-ai.cn/v1",
+      "model": "agnes-2.5-flash",
+      "api_key": "在此填入Agnes API Key",
+      "input_mode": "base64",
+      "timeout": 60,
+      "enabled": true
+    }
+  ],
+  "routing": {
+    "default_chain": ["modelscope-235b", "glm", "glm-thinking", "modelscope-8b-thinking", "modelscope-8b", "glm4v", "agnes"],
+    "overrides": {
+      "math_stem": ["glm-thinking", "glm", "modelscope-235b", "modelscope-8b-thinking", "modelscope-8b", "glm4v", "agnes"],
+      "chart": ["glm-thinking", "glm", "modelscope-235b", "modelscope-8b-thinking", "modelscope-8b", "glm4v", "agnes"]
+    },
+    "multi_tasks": ["error", "math_stem", "detail", "compare"]
+  },
+  "task_check": true,
+  "summarizer": "agnes",
+  "quota": {
+    "enabled": true,
+    "group": "modelscope",
+    "global_daily": 2000,
+    "per_model_daily": 500,
+    "reserve_ratio": 0.2,
+    "min_interval_sec": 5,
+    "state_file": ""
+  },
+  "max_size": "auto",
+  "jpeg_quality": 88,
+  "auto_trim": false,
+  "temperature": 0.2,
+  "max_tokens": 2048,
+  "timeout": 60,
+  "retries": 1,
+  "retry_delay": 2,
+  "image_max_bytes": 8000000,
+  "image_max_pixels": 40000000,
+  "download_timeout": 20,
+  "allow_local_url": false,
+  "web": {
+    "max_page_bytes": 2000000,
+    "max_images": 6
+  }
+}
