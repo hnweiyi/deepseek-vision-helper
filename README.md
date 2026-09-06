@@ -267,13 +267,13 @@ py -3.8 "<技能目录>\scripts\find_image.py" --since 15 --count 1   # 找最�
 py -3.8 "<技能目录>\scripts\analyze.py" --doctor [--json]
 ```
 
-- 无需图片；逐个展示供应商：名称 / 组 / 模型 / 启用 / key 状态（env / empty / dpapi / plain）/ 冷却秒（魔搭额外显示本地额度剩余）；
+- 无需图片；逐个展示供应商：名称 / 组 / 模型 / 启用 / key 状态（env / empty / dpapi / plain）/ 冷却秒 / 额度（日计数组的“日余 N”、有月限组的“本月已用/上限”）；
 - 并行（≤4）发送纯文本小请求测试连通与鉴权（不计本地额度）；
 - 汇总“可用 N/M”；缓存开启时打印缓存统计。
 
 ### 关键任务多模型 + Agnes 汇总
 
-`multi_tasks = error / math_stem / detail / compare`：自动**三厂商并发**（魔搭组、智谱组、Agnes 组各出最强，组内失败自动降级），三份结果交给 **Agnes 融合成一份结论**返回；Agnes 不通时返回多份由主模型兜底。
+`multi_tasks = error / math_stem / detail / compare`：自动按 `groups` 里 **multi=true 的分组并发**（默认魔搭 / 智谱 / Agnes / InternAI 四组——InternAI 未启用时实际三组；组内失败自动降级、组间并发数受 `max_multi_groups` 限制），各组结果交给 **Agnes 融合成一份结论**返回；Agnes 不通时返回多份由主模型兜底。
 
 - 手动强制：`--multi`（多模型+汇总）、`--serial`（强制单模型）。
 
@@ -306,7 +306,7 @@ py -3.8 "<技能目录>\scripts\analyze.py" --doctor [--json]
 | `timeout` | 超时秒数 |
 | `enabled` | 是否启用 |
 
-> **可选 InternAI 模板**：`providers` 里内置 `internai`（`enabled: false`），`base_url` = `https://chat.intern-ai.org.cn/api/v1`，`model` = `["internvl3.5-latest"]`（指向 InternVL3.5-241B-A28B）。免费 key 领取：<https://internlm.intern-ai.org.cn/api/tokens>（免费 9000 万 token/月、30 RPM、大陆直连、OpenAI 兼容）。把它 `enabled` 改为 `true` 并填 key，即自动进入 `default_chain` / `overrides`（模板里已插入位置）。
+> **可选 InternAI 模板**：`providers` 里内置 `internai`（`enabled: false`），`base_url` = `https://chat.intern-ai.org.cn/api/v1`，`model` = `["internvl3.5-latest"]`（指向 InternVL3.5-241B-A28B）。免费 key 领取：<https://internlm.intern-ai.org.cn/api/tokens>（赠送免费额度 9000 万 token/月、30 RPM、大陆直连、OpenAI 兼容；耗尽自动扣余额，建议在 ④ 面板设月限防扣费）。把它 `enabled` 改为 `true` 并填 key，即自动进入 `default_chain` / `overrides`（模板里已插入位置）。
 
 ### routing（路由）
 
@@ -317,19 +317,47 @@ py -3.8 "<技能目录>\scripts\analyze.py" --doctor [--json]
     "math_stem": ["glm-thinking","glm","modelscope-235b","internai","modelscope-8b-thinking","modelscope-8b","glm4v","agnes"],
     "chart": ["glm-thinking","glm","modelscope-235b","internai","modelscope-8b-thinking","modelscope-8b","glm4v","agnes"]
   },
-  "multi_tasks": ["error","math_stem","detail","compare"]
+  "multi_tasks": ["error","math_stem","detail","compare"],
+  "max_multi_groups": 3
 }
 ```
 
 - `default_chain`：全局质量降级链；缺省时回退 providers 数组顺序。
 - `overrides`：按 task 覆盖默认链。
 - `multi_tasks`：哪些任务自动多模型 + Agnes 汇总。
+- `max_multi_groups`：多模型并发时**组间并发上限**（默认 3，-1 = 不限；实际并发数 = min(参与组数, 该值)）。
 
-### quota（额度）
+### quota（本地日额度）
 
 ```json
-"quota": { "enabled": true, "group": "modelscope", "global_daily": 2000, "per_model_daily": 500, "reserve_ratio": 0.2, "min_interval_sec": 5, "state_file": "" }
+"quota": { "enabled": true, "track_groups": ["modelscope"], "global_daily": 2000, "per_model_daily": 500, "reserve_ratio": 0.2, "min_interval_sec": 5, "state_file": "" }
 ```
+
+- `track_groups`：哪些组计入本地自然日额度池（默认只 `modelscope`）；旧版单值 `group` 字段会自动迁移。
+- `global_daily` / `per_model_daily`：全局与单模型日上限；`reserve_ratio`：熔断缓冲（0.2 = 用到 80% 即停）。
+- `min_interval_sec`：全局默认最小调用间隔（组级可在 `groups` 覆盖）。
+
+### groups（分组行为：多模型参与 / 月 token 额度 / 组级限速）
+
+```json
+"groups": {
+  "modelscope": { "multi": true,  "min_interval_sec": 5.0, "quota_track": true,  "monthly_token_limit": 0 },
+  "glm":        { "multi": true,  "min_interval_sec": 0.0, "quota_track": false, "monthly_token_limit": 0 },
+  "agnes":      { "multi": true,  "min_interval_sec": 0.0, "quota_track": false, "monthly_token_limit": 0 },
+  "internai":   { "multi": true,  "min_interval_sec": 2.0, "quota_track": false, "monthly_token_limit": 90000000 }
+}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `multi` | 该组是否参与「多模型任务」并发；false = 仅走单模型链兜底（agnes 仍可当汇总器/校验器） |
+| `min_interval_sec` | 该组最小调用间隔；未配置回退 `quota.min_interval_sec`（internai RPM30 ≈ 2 秒 1 次） |
+| `quota_track` | 是否计入本地自然日额度池（= `quota.track_groups` 的组级开关） |
+| `monthly_token_limit` | 月 token 免费额度上限（0=不限）；调用成功后按响应 `usage` 累计，跨自然月清零，超限自动熔断 |
+
+> 组名不是写死的三家：按 `providers[].group` 自动聚合，**新增厂商零改代码**——只要新 provider 的 `group` 值与上面任一 key 一致（或新增 key），行为自动生效。
+
+> **internai 默认值按官方配额预置**：`monthly_token_limit: 90000000`（账号 90M in + 90M out，本地按总额 90M 保守熔断）+ `min_interval_sec: 2`（RPM30）。官方规则为“赠送免费额度先用、**耗尽自动扣余额**”，请按控制台「剩余赠送额度」再下调该值；账号未绑手机号时 InternAI 接口报 `-20035`。
 
 ### cache（答案缓存）
 
@@ -342,9 +370,10 @@ py -3.8 "<技能目录>\scripts\analyze.py" --doctor [--json]
 
 ### 如何启用 InternAI（可选第 8 家）
 
-1. 到 <https://internlm.intern-ai.org.cn/api/tokens> 免费领 key；
+1. 到 <https://internlm.intern-ai.org.cn/api/tokens> 免费领 key；**先到「个人中心」绑定手机号**，否则接口返回 `-20035`；
 2. `providers` 里找到 `internai`，把 `api_key` 填进去，`enabled` 改为 `true`；
-3. 保存后即自动进入 `default_chain` / `overrides`（模板已插入），也可在图形化工具里打开开关。
+3. 保存后自动进入 `default_chain` / `overrides`，并**默认参与多模型并发**（`groups.internai.multi: true`）；
+4. 安全提醒：官方为“赠送额度先用、耗尽自动扣余额”。默认已配 `monthly_token_limit: 90000000` + `min_interval_sec: 2`，可在图形化工具 ④ 面板按剩余赠送额度下调。
 
 ### 如何加 Ollama 本地（免费 / 离线 / 免 key）
 
@@ -373,7 +402,9 @@ py -3.8 "<技能目录>\scripts\analyze.py" --doctor [--json]
 | 删除一个模型 | GUI「删除」（答对计算题） |
 | 调质量顺序 | `routing.default_chain` / `overrides` |
 | 调多模型任务 | `routing.multi_tasks` |
-| 调额度/限速 | `quota` |
+| 调额度/限速 | `quota` + `groups` |
+| 开关某组是否参与多模型并发 | `groups.<组>.multi` |
+| 调多模型组间并发上限 | `routing.max_multi_groups`（-1=不限） |
 
 改完 `config.json` 后 `analyze.py` 立即生效，**不需要改任何 Python 代码**。
 
@@ -397,7 +428,8 @@ py -3.8 "<技能目录>\scripts\analyze.py" --doctor [--json]
   - 每行「删除」→ 答对随机 10 以内计算题才删除，并自动从所有链移除；
   - 标题旁「+ 添加」→ 新增供应商（可勾选加入 default_chain）。
 - **cache 缓存**：启用开关 / 有效期秒 / 最大条目 / 目录，即时生效，保存时写入 config.json。
-- **routing**：默认链 / math_stem / chart 三条链，选中项上移/下移调顺序；multi_tasks 用复选框勾选。
+- **routing**：默认链 / math_stem / chart 三条链，选中项上移/下移调顺序；multi_tasks 用中文卡片勾选。
+- **④ 分组与额度 groups / quota**：按组开关「参与多模型 multi」、日计数 quota_track、月 token 限额、组内最小间隔；设「组间并发上限 max_multi_groups」；下方实时显示各 provider 冷却与本组本月用量，可「清除全部冷却」。
 - 顶部「保存」写回 config.json；「退出」关闭服务器。
 
 > 安全性：服务器只监听 127.0.0.1；GET 不返回 key 明文；保存时明文自动 DPAPI 加密。
@@ -412,11 +444,12 @@ py -3.8 "<技能目录>\scripts\analyze.py" --doctor [--json]
 - 单模型：**500 次 / 模型 / 自然日**（部分模型可能更少，以平台为准）；
 - 短时频率限制：无公开固定值，免费接口定位单并发调试；高峰期连发会 429。
 
-### 本地熔断与限速
+### 本地熔断与限速（按组分控）
 
-- `quota.py` 本地 JSON（`.quota_state.json`）按日计数，调用前主动检查，超限自动跳过魔搭组、切 GLM/Agnes；
-- 魔搭组调用间最小间隔 `min_interval_sec`（默认 5 秒）限速；
-- 429 / 5xx 熔断换路：立即换下一供应商，并按 Retry-After 写入冷却（缺省 60s，上限 300s）。
+- `quota.py` 本地 JSON（`.quota_state.json`）**按自然日计数**：只对 `quota_track: true` 的组生效（默认魔搭组），调用前主动检查，超限自动跳过该组、沿链切下一家；
+- **按自然月累计 token**：仅对 `monthly_token_limit > 0` 的组生效（默认 internai 90M），调用成功后按响应 `usage` 上报累计，超限熔断、跨月清零；响应无 `usage` 时该次不累计（本地为近似防护，非计费依据）；
+- 组内最小间隔 `min_interval_sec` 限速（魔搭 5s / internai 2s / 其余 0）；429 / 5xx 熔断换路并写入冷却（缺省 60s，上限 300s）；
+- 图形化工具 ④ 面板可实时查看冷却与本月用量，一键「清除全部冷却」。
 
 > 状态文件 `.quota_state.json` 已被 `.gitignore` 排除。
 
@@ -494,11 +527,18 @@ py -3.8 "<技能目录>\scripts\analyze.py" --doctor [--json]
       "math_stem": ["glm-thinking", "glm", "modelscope-235b", "internai", "modelscope-8b-thinking", "modelscope-8b", "glm4v", "agnes"],
       "chart": ["glm-thinking", "glm", "modelscope-235b", "internai", "modelscope-8b-thinking", "modelscope-8b", "glm4v", "agnes"]
     },
-    "multi_tasks": ["error", "math_stem", "detail", "compare"]
+    "multi_tasks": ["error", "math_stem", "detail", "compare"],
+    "max_multi_groups": 3
   },
   "task_check": true,
   "summarizer": "agnes",
-  "quota": {"enabled": true, "group": "modelscope", "global_daily": 2000, "per_model_daily": 500, "reserve_ratio": 0.2, "min_interval_sec": 5, "state_file": ""},
+  "quota": {"enabled": true, "track_groups": ["modelscope"], "global_daily": 2000, "per_model_daily": 500, "reserve_ratio": 0.2, "min_interval_sec": 5, "state_file": ""},
+  "groups": {
+    "modelscope": {"multi": true, "min_interval_sec": 5.0, "quota_track": true, "monthly_token_limit": 0},
+    "glm": {"multi": true, "min_interval_sec": 0.0, "quota_track": false, "monthly_token_limit": 0},
+    "agnes": {"multi": true, "min_interval_sec": 0.0, "quota_track": false, "monthly_token_limit": 0},
+    "internai": {"multi": true, "min_interval_sec": 2.0, "quota_track": false, "monthly_token_limit": 90000000}
+  },
   "max_size": "auto", "jpeg_quality": 88, "auto_trim": false, "temperature": 0.2, "max_tokens": 2048,
   "timeout": 60, "retries": 1, "retry_delay": 2,
   "image_max_bytes": 8000000, "image_max_pixels": 40000000, "download_timeout": 20, "allow_local_url": false,

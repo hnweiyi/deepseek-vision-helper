@@ -16,10 +16,10 @@
   校验 task 是否正确，错误则自动重新设定并重跑一次。
 
 特性:
-  - 路由完全由 config 驱动（default_chain / overrides / multi_tasks），代码不硬编码模型或顺序。
-  - 按厂商分组（modelscope / glm / agnes）自动路由；失败按原因分类降级。
-  - 关键任务（multi_tasks）自动多模型并发 + agnes 汇总成一份。
-  - 魔搭额度本地按日计数（全局 + 单模型）主动熔断，并做最小间隔限速。
+  - 路由完全由 config 驱动（default_chain / overrides / multi_tasks / groups），代码不硬编码模型或顺序。
+  - 按供应商 group 字段分组自动路由（modelscope / glm / agnes / internai 等），失败按原因分类降级。
+  - 关键任务（multi_tasks）自动多模型并发 + agnes 汇总成一份；参与分组与组间并发上限由 config 控制。
+  - 额度本地计数按组可开关：日计数（全局 + 单模型）与月 token 免费额度（响应 usage 累计）超限熔断。
   - 本地/远程图片统一安全校验；api_key 支持明文或 dpapi: 加密串。
   - 答案缓存（cache 块）与安全提示（security_note）；失败分类建议与 --doctor 健康检查。
   - 仅依赖 Python 标准库；PIL 可选；Python 3.8 兼容。
@@ -153,6 +153,50 @@ def _ensure_config_from_example(path):
         return False
     return True
 
+
+def _normalize_cfg(cfg):
+    """配置归一化：quota.group 旧字段 -> track_groups；groups 行为表与路由并发上限缺省补齐。
+
+    只做内存级 setdefault/迁移，不覆盖用户已配置值。
+    """
+    q = cfg.get("quota")
+    if not isinstance(q, dict):
+        q = {}
+        cfg["quota"] = q
+    q.setdefault("enabled", True)
+    q.setdefault("global_daily", 2000)
+    q.setdefault("per_model_daily", 500)
+    q.setdefault("reserve_ratio", 0.2)
+    q.setdefault("min_interval_sec", 5.0)
+    if "group" in q and not q.get("track_groups"):
+        q["track_groups"] = [str(q.pop("group"))]
+    q.setdefault("track_groups", ["modelscope"])
+    q.setdefault("state_file", "")
+    groups = cfg.get("groups")
+    if not isinstance(groups, dict):
+        groups = {}
+        cfg["groups"] = groups
+    track = set(str(x) for x in q.get("track_groups") or [])
+    seen = set()
+    for p in cfg.get("providers", []):
+        seen.add(str(p.get("group", "other")))
+    for g in sorted(seen):
+        entry = groups.get(g)
+        if not isinstance(entry, dict):
+            entry = {}
+            groups[g] = entry
+        entry.setdefault("multi", True)
+        entry.setdefault("quota_track", g in track)
+        entry.setdefault("min_interval_sec", float(q.get("min_interval_sec", 5.0)) if g in track else 0.0)
+        entry.setdefault("monthly_token_limit", 0)
+    routing = cfg.get("routing")
+    if not isinstance(routing, dict):
+        routing = {}
+        cfg["routing"] = routing
+    routing.setdefault("max_multi_groups", 3)
+    return cfg
+
+
 def load_config(path):
     p = Path(path)
     if not p.exists():
@@ -167,7 +211,7 @@ def load_config(path):
     cfg.setdefault("_config_dir", str(p.parent))
     if "providers" not in cfg:
         raise SystemExit("配置文件缺少 providers 数组: %s" % p)
-    return cfg
+    return _normalize_cfg(cfg)
 def resolve_max_size(cli_value, cfg_value, task):
     if cli_value is not None:
         return int(cli_value)
@@ -441,7 +485,15 @@ def _post_chat(provider, payload, cfg, timeout=None):
                 text += block.get("text", "")
     if not text:
         raise ProviderError("模型未返回文字内容: %s" % json.dumps(msg, ensure_ascii=False)[:300], kind="other")
-    return text, elapsed
+    usage_tokens = 0
+    try:
+        u = data.get("usage") or {}
+        usage_tokens = int(u.get("total_tokens") or 0)
+        if not usage_tokens:
+            usage_tokens = int(u.get("prompt_tokens") or 0) + int(u.get("completion_tokens") or 0)
+    except Exception:
+        usage_tokens = 0
+    return text, elapsed, usage_tokens
 
 
 
@@ -485,7 +537,8 @@ def call_provider(provider, image_blocks, cfg, focus, task, brief, labels):
     last = None
     for model in models:
         try:
-            return _call_provider_model(provider, model, image_blocks, cfg, focus, task, brief, labels)
+            _t, _e, _u = _call_provider_model(provider, model, image_blocks, cfg, focus, task, brief, labels)
+            return _t, _e
         except ProviderError as e:
             last = e
             if e.kind == "model_error" and model is not models[-1]:
@@ -581,6 +634,17 @@ def _check_task(providers, cfg, focus, task, text):
 def _quota_state_file(cfg):
     q = cfg.get("quota") or {}
     return q.get("state_file") or str(SCRIPT_DIR.parent / ".quota_state.json")
+
+
+def _make_quota(cfg):
+    """按 config 构造 Quota：传入 groups 行为表与组-成员映射。"""
+    qcfg = cfg.get("quota")
+    if not isinstance(qcfg, dict):
+        qcfg = {}
+    members = {}
+    for p in cfg.get("providers", []):
+        members.setdefault(str(p.get("group", "other")), []).append(str(p.get("name") or "?"))
+    return Quota(qcfg, _quota_state_file(cfg), groups_cfg=cfg.get("groups") or {}, members=members)
 
 
 def _routing_for(cfg, task):
@@ -731,7 +795,9 @@ def _attempt_single(chain, make_blocks, cfg, focus, task, brief, labels, quota, 
                 quota.throttle(group)
                 quota.consume(name, group)
                 try:
-                    text, elapsed = _call_provider_model(p, model, blocks, cfg, focus, task, brief, labels)
+                    text, elapsed, usage_tokens = _call_provider_model(p, model, blocks, cfg, focus, task, brief, labels)
+                    if usage_tokens:
+                        quota.consume_tokens(name, group, usage_tokens)
                     cache.put(key, text, elapsed)
                     return {"text": text, "name": name, "model": model, "elapsed": elapsed, "mode": "single", "task": task, "cached": False}
                 except ProviderError as e:
@@ -769,9 +835,20 @@ def _attempt_single(chain, make_blocks, cfg, focus, task, brief, labels, quota, 
 
 def _attempt_multi(chain, make_blocks, cfg, focus, task, brief, labels, quota, cache):
     groups = {}
+    gcfg = cfg.get("groups")
+    if not isinstance(gcfg, dict):
+        gcfg = {}
     for p in chain:
+        if not p.get("enabled", True):
+            continue
         g = p.get("group", "other")
+        ge = gcfg.get(g)
+        if isinstance(ge, dict) and ge.get("multi") is False:
+            continue
         groups.setdefault(g, []).append(p)
+    if not groups:
+        sys.stderr.write("[多模型] 没有启用且 multi 开启的分组，退化为单模型顺序降级\n")
+        return _attempt_single(chain, make_blocks, cfg, focus, task, brief, labels, quota, cache)
 
     retries = int(cfg.get("retries", 1))
     group_errors = []
@@ -824,7 +901,9 @@ def _attempt_multi(chain, make_blocks, cfg, focus, task, brief, labels, quota, c
                     quota.throttle(group)
                     quota.consume(name, group)
                     try:
-                        text, elapsed = _call_provider_model(p, model, blocks, cfg, focus, task, brief, labels)
+                        text, elapsed, usage_tokens = _call_provider_model(p, model, blocks, cfg, focus, task, brief, labels)
+                        if usage_tokens:
+                            quota.consume_tokens(name, group, usage_tokens)
                         cache.put(key, text, elapsed)
                         return {"group": gname, "name": name, "model": model, "text": text, "elapsed": elapsed, "cached": False}
                     except ProviderError as e:
@@ -859,7 +938,12 @@ def _attempt_multi(chain, make_blocks, cfg, focus, task, brief, labels, quota, c
         return {"group": gname, "error": err_text}
 
     group_names = list(groups.keys())
-    with ThreadPoolExecutor(max_workers=min(len(group_names), 3)) as ex:
+    if len(group_names) < 2:
+        sys.stderr.write("[多模型] 参与并发的分组仅 %d 个，退化为单模型顺序降级\n" % len(group_names))
+        return _attempt_single(chain, make_blocks, cfg, focus, task, brief, labels, quota, cache)
+    mw = int(((cfg.get("routing") or {}).get("max_multi_groups") or 3))
+    workers = len(group_names) if mw < 0 else max(1, min(len(group_names), mw))
+    with ThreadPoolExecutor(max_workers=workers) as ex:
         group_results = list(ex.map(run_group, group_names))
 
     ok = [r for r in group_results if "text" in r]
@@ -897,7 +981,7 @@ def _attempt_multi(chain, make_blocks, cfg, focus, task, brief, labels, quota, c
 
     parts = []
     for r in ok:
-        parts.append("=== %s (%s) ===\n%s" % (r["provider"], r["model"], r["text"]))
+        parts.append("=== %s (%s) ===\n%s" % (r.get("name") or r.get("provider"), r.get("model"), r.get("text")))
     return {
         "text": "\n\n".join(parts), "name": "multi-fallback", "model": model_joined,
         "elapsed": elapsed, "mode": "multi-fallback", "results": entries, "task": task, "cached": cached_any,
@@ -960,7 +1044,7 @@ def _apply_security_note(result, cfg):
 
 def run_providers(providers, images, cfg, focus, task, brief, max_size, auto_trim, allow_local_url, labels=None, mode="auto"):
     quality = int(cfg.get("jpeg_quality", 88))
-    quota = Quota(cfg.get("quota", {}), _quota_state_file(cfg))
+    quota = _make_quota(cfg)
     cache = _make_cache(cfg)
 
     def make_blocks(p):
@@ -972,7 +1056,7 @@ def run_providers(providers, images, cfg, focus, task, brief, max_size, auto_tri
 
 
 def run_blocks(providers, blocks, cfg, focus, task, brief, labels=None, mode="auto"):
-    quota = Quota(cfg.get("quota", {}), _quota_state_file(cfg))
+    quota = _make_quota(cfg)
     cache = _make_cache(cfg)
     r = _run_with_task_check(providers, lambda p: blocks, cfg, focus, task, brief, labels, quota, cache, mode)
     r = _apply_security_note(r, cfg)
@@ -1017,7 +1101,7 @@ def _doctor_provider(provider, cfg):
 def _doctor(cfg, args):
     """--doctor 健康检查：展示供应商状态并做并行连通性/鉴权测试。"""
     providers = cfg.get("providers", [])
-    quota = Quota(cfg.get("quota", {}), _quota_state_file(cfg))
+    quota = _make_quota(cfg)
     cache = _make_cache(cfg)
     rows = []
     targets = []
@@ -1027,8 +1111,12 @@ def _doctor(cfg, args):
         model = _model_display(p)
         key_status = _mask_key_status(p)
         quota_extra = ""
-        if p.get("group") == "modelscope" and quota.enabled:
-            quota_extra = "本地额度剩余 %d" % quota.remaining()
+        g = p.get("group", "")
+        if quota.daily_track(g):
+            quota_extra = "日余 %d" % quota.remaining()
+        if quota.monthly_limit(g) > 0:
+            used = sum(quota.month_usage(g).values())
+            quota_extra = (quota_extra + " | " if quota_extra else "") + "月 %d/%d" % (used, quota.monthly_limit(g))
         rows.append({
             "name": name, "group": p.get("group", ""), "model": model,
             "enabled": bool(p.get("enabled", True)), "key": key_status,
@@ -1152,3 +1240,4 @@ def main(argv=None):
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

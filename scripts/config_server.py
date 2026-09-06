@@ -35,6 +35,13 @@ except Exception:
     encrypt_text = None
     decrypt_text = None
 
+try:
+    from analyze import _normalize_cfg, _quota_state_file, _make_quota  # noqa: E402
+except Exception:
+    _normalize_cfg = None
+    _quota_state_file = None
+    _make_quota = None
+
 DEFAULT_CONFIG = SCRIPT_DIR.parent / "config.json"
 
 ALL_TASKS = ["general", "ocr", "error", "ui", "chart", "compare", "document", "math_stem", "detail", "video", "unknown"]
@@ -183,6 +190,37 @@ HTML = r'''<!DOCTYPE html>
       <label>缓存目录（留空=config 同目录）<input type="text" id="cache-dir" placeholder="" style="width:280px" oninput="cfg.cache.dir=this.value; dirty()"></label>
     </div>
     <p class="hint">缓存开关即时生效，保存后写入 config.json；命中缓存不消耗 API 额度。</p>
+  </section>
+
+  <section class="panel">
+    <h2>④ 分组与额度 groups / quota（多模型参与、日/月额度、限速、冷却）</h2>
+    <div class="frow">
+      <label>组间并发上限 max_multi_groups（-1=不限）
+        <input type="number" id="g-max-multi" min="-1" value="3" style="width:120px"
+               onchange="cfg.routing=(cfg.routing||{}); cfg.routing.max_multi_groups=parseInt(this.value)||3; dirty()"></label>
+      <button class="mini ok" onclick="refreshStatus()">刷新额度/冷却状态</button>
+      <span class="hint" style="padding-bottom:8px">行内修改后点右上「保存配置」生效；调整组开关/额度/限速均无需改代码。</span>
+    </div>
+    <div class="scroll">
+      <table class="grid" id="group-table" style="min-width:1000px">
+        <thead><tr>
+          <th style="width:80px">参与多模型 multi</th>
+          <th style="width:170px">分组 group</th>
+          <th>成员供应商（model）</th>
+          <th style="width:90px" title="计入本地自然日额度池">日计数 quota_track</th>
+          <th style="width:160px" title="月 token 免费额度，0=不限">月限 monthly_token_limit</th>
+          <th style="width:130px" title="组内调用最小间隔秒">间隔秒 min_interval_sec</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div id="quota-status" style="margin-top:8px;font-size:12px;color:#555;line-height:1.7"></div>
+    <p class="hint">
+      说明：multi=该组是否参与「多模型任务」并发；单模型链仍按 default_chain 顺序兜底，不受 multi 开关影响。<br>
+      quota_track=计入本地自然日额度池（默认全局 2000/日、每模型 500/日，含 reserve_ratio 熔断缓冲）。<br>
+      monthly_token_limit 单位 token，0=不限；本组调用成功后按响应 usage 累计，跨自然月自动清零。<br>
+      <b>internai（书生浦语）</b>：官方为「赠送免费额度先用、耗尽自动扣余额」，且 RPM30≈每 2 秒 1 次；默认已按 90000000 token 设月限并 2s 限速，请按控制台「剩余赠送额度」再下调。
+    </p>
   </section>
 
 </div>
@@ -506,11 +544,112 @@ function renderCache(){
   document.getElementById('cache-dir').value = c.dir || '';
 }
 
+/* ---------- groups / quota ---------- */
+const GROUP_ZH = { modelscope: '魔搭', glm: '智谱', agnes: 'Agnes', internai: '书生浦语' };
+function groupZh(g){ return GROUP_ZH[g] || g; }
+function ensureGroups(){
+  if (!cfg.groups || typeof cfg.groups !== 'object') cfg.groups = {};
+  const byg = {};
+  cfg.providers.forEach(function(p){ const g = (p.group || 'other').trim() || 'other'; (byg[g] = byg[g] || []).push(p); });
+  Object.keys(byg).forEach(function(g){
+    let e = cfg.groups[g];
+    if (!e || typeof e !== 'object'){ e = {}; cfg.groups[g] = e; }
+    if (typeof e.multi !== 'boolean') e.multi = true;
+    if (typeof e.quota_track !== 'boolean') e.quota_track = false;
+    if (e.min_interval_sec === undefined || e.min_interval_sec === null) e.min_interval_sec = 0;
+    if (e.monthly_token_limit === undefined || e.monthly_token_limit === null) e.monthly_token_limit = 0;
+  });
+}
+function renderGroups(){
+  ensureGroups();
+  const r = cfg.routing || (cfg.routing = {});
+  document.getElementById('g-max-multi').value = (r.max_multi_groups == null ? 3 : r.max_multi_groups);
+  const byg = {};
+  cfg.providers.forEach(function(p){ const g = (p.group || 'other').trim() || 'other'; (byg[g] = byg[g] || []).push(p); });
+  const tb = document.querySelector('#group-table tbody');
+  tb.innerHTML = '';
+  Object.keys(byg).sort().forEach(function(g){
+    const e = cfg.groups[g];
+    const tr = document.createElement('tr');
+    const td0 = document.createElement('td'); td0.className = 'c';
+    const cb0 = document.createElement('input'); cb0.type = 'checkbox';
+    cb0.checked = e.multi !== false;
+    cb0.title = '是否参与多模型并发';
+    cb0.onchange = function(){ e.multi = cb0.checked; dirty(); };
+    td0.appendChild(cb0);
+    const td1 = document.createElement('td');
+    const sp = document.createElement('span'); sp.className = 'pname'; sp.textContent = groupZh(g) + ' ' + g;
+    td1.appendChild(sp);
+    const td2 = document.createElement('td');
+    td2.style.fontSize = '12px';
+    td2.textContent = byg[g].map(function(p){ return p.name + ' [' + modelStr(p.model) + ']' + (p.enabled === false ? '（关闭）' : ''); }).join('；');
+    const td3 = document.createElement('td'); td3.className = 'c';
+    const cb3 = document.createElement('input'); cb3.type = 'checkbox';
+    cb3.checked = !!e.quota_track;
+    cb3.title = '是否计入本地自然日额度池';
+    cb3.onchange = function(){ e.quota_track = cb3.checked; dirty(); };
+    td3.appendChild(cb3);
+    const td4 = document.createElement('td');
+    const in4 = document.createElement('input'); in4.type = 'number'; in4.min = '0'; in4.step = '1000000';
+    in4.value = e.monthly_token_limit || 0;
+    in4.title = '月 token 免费额度，0=不限';
+    in4.onchange = function(){ e.monthly_token_limit = Math.max(0, parseInt(this.value) || 0); dirty(); };
+    td4.appendChild(in4);
+    const td5 = document.createElement('td');
+    const in5 = document.createElement('input'); in5.type = 'number'; in5.min = '0'; in5.step = '0.5';
+    in5.value = e.min_interval_sec || 0;
+    in5.title = '组内调用最小间隔秒';
+    in5.onchange = function(){ e.min_interval_sec = Math.max(0, parseFloat(this.value) || 0); dirty(); };
+    td5.appendChild(in5);
+    tr.appendChild(td0); tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3); tr.appendChild(td4); tr.appendChild(td5);
+    tb.appendChild(tr);
+  });
+}
+async function refreshStatus(){
+  const box = document.getElementById('quota-status');
+  box.textContent = '额度/冷却状态加载中…';
+  try {
+    const r = await fetch('/api/status');
+    const d = await r.json();
+    if (!d.ok){ box.textContent = '状态获取失败：' + (d.error || ''); return; }
+    let h = '';
+    h += '<b>冷却</b>：';
+    const cd = d.cooldowns || {};
+    const keys = Object.keys(cd);
+    if (keys.length){
+      h += keys.map(function(k){ return esc(k) + ' 剩余 ' + cd[k] + 's'; }).join('、');
+      h += ' <button class="mini danger" onclick="clearCooldown()">清除全部冷却</button>';
+    } else {
+      h += '无';
+    }
+    h += '<br>';
+    (d.groups || []).forEach(function(g){
+      h += '<b>' + esc(groupZh(g.name) + ' ' + g.name) + '</b>（' + g.members.map(function(m){ return m.name; }).join('、') + '）：';
+      if (g.quota_track && g.day_remaining != null){
+        h += '今日剩余 ' + g.day_remaining + '（熔断线 ' + g.day_effective + '）';
+      }
+      if (g.monthly_token_limit > 0){
+        h += (g.quota_track && g.day_remaining != null ? '；' : '') + '本月已用 ' + (g.month_used || 0) + '/' + g.monthly_token_limit + ' token';
+        if (g.month_remaining != null) h += '（余 ' + g.month_remaining + '）';
+      }
+      h += '<br>';
+    });
+    h += '<span style="color:#8a94a6">state 文件：' + esc(d.state_file) + '</span>';
+    box.innerHTML = h;
+  } catch (e){
+    box.textContent = '状态获取异常：' + e;
+  }
+}
+async function clearCooldown(){
+  try { await fetch('/api/clear_cooldown', { method: 'POST' }); refreshStatus(); } catch (e) {}
+}
+
 /* ---------- load / save ---------- */
 function renderAll(){
   renderProviders();
   renderRouting();
   renderCache();
+  renderGroups();
 }
 
 async function loadConfig(){
@@ -520,9 +659,11 @@ async function loadConfig(){
     if (!d.ok){ msg('加载失败: ' + (d.error || '')); return false; }
     cfg = d.config;
     ensureCache();
+    ensureGroups();
     if (!cfg.routing.multi_tasks) cfg.routing.multi_tasks = [];
     renderAll();
     cleanDirty();
+    refreshStatus();
     return true;
   } catch (e){ msg('加载异常: ' + e); return false; }
 }
@@ -601,7 +742,13 @@ def load_config(path):
         else:
             raise FileNotFoundError("找不到配置文件: %s" % p)
     with p.open("r", encoding="utf-8-sig") as f:
-        return json.load(f)
+        cfg = json.load(f)
+    if _normalize_cfg is not None:
+        try:
+            cfg = _normalize_cfg(cfg)
+        except Exception:
+            pass
+    return cfg
 def public_config(cfg):
     out = json.loads(json.dumps(cfg, ensure_ascii=False))
     for p in out.get("providers", []):
@@ -720,6 +867,84 @@ def test_provider(p):
         return {"ok": False, "elapsed": round(_time.time() - t0, 1), "error": str(e)}
 
 
+def _status_payload(cfg):
+    """组装分组/额度/冷却状态（不含任何明文 key）。"""
+    groups = {}
+    for p in cfg.get("providers", []):
+        groups.setdefault(str(p.get("group", "other")), []).append(p)
+    qcfg = cfg.get("quota") or {}
+    out = {
+        "ok": True,
+        "quota_enabled": bool(qcfg.get("enabled", True)),
+        "state_file": _quota_state_file(cfg) if _quota_state_file else "",
+        "cooldowns": {},
+        "groups": [],
+    }
+    quota = None
+    if _make_quota is not None:
+        try:
+            quota = _make_quota(cfg)
+        except Exception:
+            quota = None
+    if quota is not None:
+        try:
+            out["cooldowns"] = {k: round(v, 1) for k, v in quota.cooldowns_snapshot().items()}
+        except Exception:
+            pass
+    track = [str(x) for x in (qcfg.get("track_groups") or [])]
+    for gname in sorted(groups.keys()):
+        pros = groups[gname]
+        gc = (cfg.get("groups") or {}).get(gname) or {}
+        members = []
+        for p in pros:
+            m = p.get("model")
+            if isinstance(m, list):
+                m = m[0] if m else ""
+            members.append({
+                "name": p.get("name"), "enabled": bool(p.get("enabled", True)),
+                "model": m or "", "has_key": bool(p.get("api_key")),
+            })
+        entry = {
+            "name": gname,
+            "members": members,
+            "multi": bool(gc.get("multi", True)),
+            "quota_track": bool(gc.get("quota_track", gname in track)),
+            "min_interval_sec": float(gc.get("min_interval_sec", 0.0) or 0.0),
+            "monthly_token_limit": int(gc.get("monthly_token_limit", 0) or 0),
+        }
+        if quota is not None:
+            try:
+                if quota.daily_track(gname):
+                    entry["day_remaining"] = quota.remaining()
+                    entry["day_effective"] = quota.global_effective
+                if quota.monthly_limit(gname) > 0:
+                    entry["month_used"] = sum(quota.month_usage(gname).values())
+                    entry["month_remaining"] = quota.month_remaining(gname)
+            except Exception:
+                pass
+        out["groups"].append(entry)
+    return out
+
+
+def _clear_cooldowns(path):
+    """清空本地状态文件中的冷却记录；不影响额度计数。"""
+    cfg = load_config(path)
+    if _quota_state_file is None:
+        return {"ok": False, "error": "quota 模块不可用"}
+    state_file = _quota_state_file(cfg)
+    try:
+        with open(state_file, "r", encoding="utf-8") as f:
+            s = json.load(f)
+    except Exception:
+        s = {}
+    if not isinstance(s, dict):
+        s = {}
+    s["cooldowns"] = {}
+    with open(state_file, "w", encoding="utf-8") as f:
+        json.dump(s, f, ensure_ascii=False)
+    return {"ok": True}
+
+
 class Handler(BaseHTTPRequestHandler):
     config_path = str(DEFAULT_CONFIG)
 
@@ -746,6 +971,11 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 cfg = load_config(self.config_path)
                 self._json({"ok": True, "config": public_config(cfg)})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+        elif self.path == "/api/status":
+            try:
+                self._json(_status_payload(load_config(self.config_path)))
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
         elif self.path == "/api/shutdown":
@@ -777,6 +1007,11 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("config 缺少 providers")
                 save_config(cfg, self.config_path)
                 self._json({"ok": True, "config": public_config(load_config(self.config_path))})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+        elif self.path == "/api/clear_cooldown":
+            try:
+                self._json(_clear_cooldowns(self.config_path))
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
         else:

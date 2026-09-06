@@ -127,18 +127,21 @@
       "math_stem",
       "detail",
       "compare"
-    ]
+    ],
+    "max_multi_groups": 3
   },
   "task_check": true,
   "summarizer": "agnes",
   "quota": {
     "enabled": true,
-    "group": "modelscope",
     "global_daily": 2000,
     "per_model_daily": 500,
     "reserve_ratio": 0.2,
     "min_interval_sec": 5,
-    "state_file": ""
+    "state_file": "",
+    "track_groups": [
+      "modelscope"
+    ]
   },
   "max_size": "auto",
   "jpeg_quality": 88,
@@ -162,5 +165,31 @@
     "max_entries": 200,
     "dir": ""
   },
-  "security_note": true
+  "security_note": true,
+  "groups": {
+    "modelscope": {
+      "multi": true,
+      "min_interval_sec": 5.0,
+      "quota_track": true,
+      "monthly_token_limit": 0
+    },
+    "glm": {
+      "multi": true,
+      "min_interval_sec": 0.0,
+      "quota_track": false,
+      "monthly_token_limit": 0
+    },
+    "agnes": {
+      "multi": true,
+      "min_interval_sec": 0.0,
+      "quota_track": false,
+      "monthly_token_limit": 0
+    },
+    "internai": {
+      "multi": true,
+      "min_interval_sec": 2.0,
+      "quota_track": false,
+      "monthly_token_limit": 90000000
+    }
+  }
 }
