@@ -9,8 +9,11 @@
 """
 import argparse
 import json
+import socket
 import sys
 import threading
+import time
+import urllib.request
 import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -43,6 +46,8 @@ except Exception:
     _make_quota = None
 
 DEFAULT_CONFIG = SCRIPT_DIR.parent / "config.json"
+
+APP_ID = "shijuefenxi-config-server"
 
 ALL_TASKS = ["general", "ocr", "error", "ui", "chart", "compare", "document", "math_stem", "detail", "video", "unknown"]
 
@@ -1062,6 +1067,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path in ("/", "/index.html"):
             self._html()
+        elif self.path == "/api/ping":
+            self._json({"ok": True, "app": APP_ID})
         elif self.path == "/api/config":
             try:
                 cfg = load_config(self.config_path)
@@ -1127,6 +1134,66 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
+_NO_PROXY = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
+def _probe(port, timeout=0.6, connect_timeout=0.3):
+    """Probe a port: is it this config tool? Supports old versions too."""
+    # Fast TCP pre-check: skip closed ports instantly (some environments black-hole
+    # connections to closed localhost ports instead of refusing them).
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            s.settimeout(connect_timeout)
+            if s.connect_ex(("127.0.0.1", port)) != 0:
+                return False
+        finally:
+            s.close()
+    except Exception:
+        return False
+
+    def _get(path):
+        try:
+            with _NO_PROXY.open("http://127.0.0.1:%d%s" % (port, path), timeout=timeout) as r:
+                return r.read()
+        except Exception:
+            return b""
+    try:
+        data = json.loads(_get("/api/ping").decode("utf-8"))
+        if data.get("app") == APP_ID:
+            return True
+    except Exception:
+        pass
+    try:
+        data = json.loads(_get("/api/status").decode("utf-8"))
+        if data.get("ok") is True and "quota_enabled" in data:
+            return True
+    except Exception:
+        pass
+    return "shijuefenxi \u914d\u7f6e\u5de5\u5177".encode("utf-8") in _get("/")
+
+
+def _shutdown(port):
+    # /api/shutdown 是 GET 端点（旧版本亦同），请求后旧实例会自行退出
+    try:
+        _NO_PROXY.open("http://127.0.0.1:%d/api/shutdown" % port, timeout=2).read()
+    except Exception:
+        pass
+
+
+def _stop_existing(start_port, scan=10, max_rounds=6, settle=0.5):
+    """Stop stale instances (incl. same-port duplicates) until none respond on the port."""
+    for port in range(start_port, start_port + scan):
+        rounds = 0
+        while _probe(port):
+            rounds += 1
+            if rounds > max_rounds:
+                print("[警告] 端口 %d 仍被旧实例占用，请手动结束残留 pythonw 进程后重试" % port, flush=True)
+                break
+            _shutdown(port)
+            time.sleep(settle)
+
+
 def find_port(start):
     port = start
     while True:
@@ -1145,6 +1212,8 @@ def main(argv=None):
     args = ap.parse_args(argv)
     if args.config:
         Handler.config_path = args.config
+    # 单实例自替换：先优雅关闭旧实例并等端口释放，再绑定启动
+    _stop_existing(args.port)
     srv, port = find_port(args.port)
     url = "http://127.0.0.1:%d/" % port
     print("配置工具已启动: %s" % url, flush=True)
