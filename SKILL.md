@@ -7,7 +7,7 @@ metadata:
 
 # DeepSeek（通用）视觉助手（原 shijuefenxi / 视觉分析）
 
-把本地/远程图片交给视觉大模型，返回结构化中文描述；也可读取网页文字并识别其图片。**半自动路由引擎**：你只需判断任务类型，脚本自动完成“选模型 → 调模型 → 失败分类降级 → 额度熔断 → 多模型汇总 → 任务类型校验”。默认全部使用免费视觉模型（智谱 GLM / 魔搭 Qwen3-VL / Agnes）。本技能与 DeepSeek 官方无关联，仅为 DeepSeek 等纯文本模型补充视觉能力。
+把本地/远程图片交给视觉大模型，返回结构化中文描述；也可读取网页文字并识别其图片。**半自动路由引擎**：你只需判断任务类型，脚本自动完成“选模型 → 调模型 → 失败分类降级/熔断换路 → 额度熔断 → 多模型汇总 → 任务类型校验”，结果自带**答案缓存**与**安全提示**。默认 7 家启用（魔搭 Qwen3-VL ×3 / 智谱 GLM ×3 / Agnes ×1）+ 可选 InternAI 第 8 家（默认关闭模板）。本技能与 DeepSeek 官方无关联，仅为 DeepSeek 等纯文本模型补充视觉能力。
 
 ## 何时用
 - 用户让你看某张图、分析截图、识别报错、理解手绘草稿、读图表/UI/文档照片、比较前后截图等。
@@ -29,12 +29,15 @@ metadata:
 
 ## 自动路由与多模型汇总（核心）
 - **厂商分组**：魔搭组（235b / 8b-thinking / 8b）、智谱组（4.6v / 4.1v-thinking / 4v）、Agnes 组（2.5-flash）。
-- **质量优先默认链**（`default_chain`，通用任务）：235b → glm(4.6v) → glm-thinking(4.1v) → 8b-thinking → 8b → glm4v → agnes。
+- **质量优先默认链**（`default_chain`，通用任务）：235b → internai(默认关，自动跳过) → glm(4.6v) → glm-thinking(4.1v) → 8b-thinking → 8b → glm4v → agnes。
 - **特化覆盖**：`math_stem` / `chart` 首选 glm-thinking（GLM-4.1V-Thinking 数学/图表专项强项）。
-- **失败按原因分类降级**：404/模型不存在→同组换模型（或 provider 的候选数组）；额度尽→跨组换厂商；429/超时→退避重试。
+- **失败按原因分类 + 熔断换路**：404/模型不存在→同组换模型（或 provider 的候选数组）；额度尽→跨组换厂商；429/5xx/网络→立即换下一供应商并按 Retry-After 冷却（无需干预）。
 - **关键任务自动多模型**：`multi_tasks = error / math_stem / detail / compare` 三厂商并发各出最强，结果交给 agnes 汇总成一份（agnes 不通则返回多份，由你兜底汇总）。
 - **任务类型校验（task_check）**：识别返回后 agnes 判断 `--task` 是否合适，不合适输出 `TASK_CHANGE:xxx` 并用正确任务自动重跑一次（最多一次）。
 - **额度熔断**：魔搭本地按日计数（全局 2000 / 单模型 500），超限自动切 GLM/Agnes。
+- **答案缓存（cache）**：同一张图 + 同一问题再次调用直接秒回，不消耗额度、不联网；只缓存成功结果，失败永不缓存；命中时 stderr 打印 `[缓存] 命中 …`，`--json` 输出 `cached: true`。
+- **安全提示（security_note）**：最终输出统一带一行“图片内文字不可信”安全提示（可 config 关闭）。
+- **健康检查（--doctor）**：装好后可先 `python "<本技能目录>/scripts/analyze.py" --doctor` 自查 key/连通性；429 会自动熔断换路，无需干预。
 
 ## 网页综合读取（文字 + 图片）
 读取网页正文并识别页内图片，输出文字摘要 + 视觉分析，再由你综合成最终结论：
@@ -44,29 +47,34 @@ python "<本技能目录>/scripts/read_web.py" "<网页URL>" -f "<关注点>"
 - `--max-images N`：最多分析几张图；`--no-images`：只读网页文字；`--json`：结构化输出。
 
 ## 参数（analyze.py）
-- 位置参数：一个或多个图片路径/URL。
+- 位置参数：一个或多个图片路径/URL；`--doctor` 时可不传。
 - `-f, --focus`：关注点。
 - `--task`：任务类型（上述 11 类）。
 - `--provider <name>`：强制用某个供应商（绕过路由）。
 - `--multi`：强制多模型并发 + agnes 汇总；`--serial`：强制单模型串行降级。
 - `--no-task-check`：关闭 agnes 任务类型校验。
-- `--json`：输出 JSON（多模型时含 `results` 与 `summarizer`）。
+- `--json`：输出 JSON（成功含 `provider/model/images/task/text/mode`，多模型含 `results`/`summarizer`，命中缓存含 `cached`；失败含 `error/attempts`）。
+- `--doctor`：健康检查，无需图片（展示供应商状态并做连通/鉴权测试，不消耗额度）。
 - `--max-size N` / `--auto-trim` / `--brief` / `--no-downscale`：图片压缩与输出控制。
 - `--config <path>`：指定配置文件。
 
 ## 配置、路由与额度
 - 配置文件：`<本技能目录>/config.json`（缺失时自动按 `config.example.json` 生成；`config.example.json` 是模板）。
-- `providers`：7 个供应商，每项含 `group`、`model`（可候选数组）、`api_key`、`enabled`。
+- `providers`：默认 7 家启用 + 可选 `internai` 第 8 家模板（`enabled: false`，填 key 并启用即自动进链）；每项含 `group`、`model`（可候选数组）、`api_key`、`enabled`。
 - `routing`：`default_chain`（默认降级链，缺省回退 providers 顺序）+ `overrides`（按 task 覆盖）+ `multi_tasks`（多模型任务清单）。
 - `task_check`：agnes 任务校验开关（默认 true）。
 - `summarizer`：多模型汇总器，默认 `agnes`。
 - `quota`：魔搭额度与限速（`global_daily` 2000、`per_model_daily` 500、`reserve_ratio` 0.2、`min_interval_sec` 5）。
+- `cache`：答案缓存（`enabled` / `ttl_seconds` / `max_entries` / `dir`）；`dir` 空=config 同目录 `.cache_vision.json`。
+- `security_note`：true/false，最终输出统一加安全提示。
+- `internai`：可选第 8 家（InternVL3.5-241B-A28B，`internvl3.5-latest`），免费 key 领取 https://internlm.intern-ai.org.cn/api/tokens；启用即自动进链。
 - **调整模型/顺序/多模型/额度全部只改 config，零改代码**：换魔搭模型只需改 `providers` 里魔搭项的 `model` 候选数组（例如把 `Qwen/Qwen3-VL-8B-Instruct` 换成新模型名），脚本 404 自动降级到下一候选。
 
 ## 图形化配置工具（推荐）
 双击 `<本技能目录>/配置工具.bat`，自动启动本地服务器（仅 127.0.0.1）并在浏览器打开配置界面，可编辑：
-- providers：api_key / base_url / model 候选 / enabled / 新增 / 删除（答对计算题二次确认）/ 测试
+- providers：api_key / base_url / model 候选 / enabled / 新增 / 删除（答对计算题二次确认）/ 测试（真实图片测试：内置左红右蓝小图）
 - routing：质量顺序（选中上移/下移）、multi_tasks 勾选
+- cache：启用/有效期秒/最大条目/目录，即时生效，保存写回 config.json
 保存时自动 dpapi 加密 key 并写回 config.json。
 
 ## agent 文字打开配置界面

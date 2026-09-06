@@ -63,7 +63,7 @@ HTML = r'''<!DOCTYPE html>
   label { font-size: 13px; }
   .field { margin-bottom: 10px; }
   .field span { display: block; font-size: 12px; color: #666; margin-bottom: 3px; }
-  .field input[type=text], .field input[type=password] { width: 100%; padding: 6px 8px; border: 1px solid #cbd0d8; border-radius: 5px; font-size: 13px; }
+  .field input[type=text], .field input[type=password], .field input[type=number] { width: 100%; padding: 6px 8px; border: 1px solid #cbd0d8; border-radius: 5px; font-size: 13px; }
   .field input[type=checkbox] { width: auto; }
   button.mini { padding: 4px 10px; margin-right: 5px; border: 1px solid #cbd0d8; background: #fff; border-radius: 5px; cursor: pointer; }
   #multi-tasks label { margin-right: 12px; display: inline-block; }
@@ -121,6 +121,15 @@ HTML = r'''<!DOCTYPE html>
     <h3>多模型任务 multi_tasks</h3>
     <div id="multi-tasks"></div>
   </div>
+
+  <div class="panel">
+    <h2>缓存 cache</h2>
+    <div class="field"><label><input type="checkbox" id="cache-enabled" onchange="cfg.cache.enabled=this.checked"> 启用答案缓存</label></div>
+    <div class="field"><span>有效期秒 ttl_seconds</span><input type="number" id="cache-ttl" min="1" value="3600" onchange="cfg.cache.ttl_seconds=parseInt(this.value)||3600"></div>
+    <div class="field"><span>最大条目 max_entries</span><input type="number" id="cache-max" min="1" value="200" onchange="cfg.cache.max_entries=parseInt(this.value)||200"></div>
+    <div class="field"><span>缓存目录（留空=config 同目录）dir</span><input type="text" id="cache-dir" placeholder="" oninput="cfg.cache.dir=this.value"></div>
+    <p style="font-size:12px;color:#666">缓存开关即时生效，保存后写入 config.json。</p>
+  </div>
 </div>
 <script>
 let cfg = null;
@@ -130,13 +139,30 @@ let curChainKey = 'default_chain';
 
 function msg(s) { document.getElementById('msg').textContent = s; }
 
+function ensureCache() {
+  if (cfg.cache) return false;
+  cfg.cache = { enabled: true, ttl_seconds: 3600, max_entries: 200, dir: '' };
+  return true;
+}
+
+function renderCache() {
+  const c = cfg.cache || {};
+  document.getElementById('cache-enabled').checked = !!c.enabled;
+  document.getElementById('cache-ttl').value = c.ttl_seconds || 3600;
+  document.getElementById('cache-max').value = c.max_entries || 200;
+  document.getElementById('cache-dir').value = c.dir || '';
+}
+
 async function loadConfig() {
   const r = await fetch('/api/config');
   const d = await r.json();
   if (!d.ok) { msg('加载失败: ' + d.error); return; }
   cfg = d.config;
+  const cacheCreated = ensureCache();
   renderProviders();
   renderRouting();
+  renderCache();
+  if (cacheCreated) msg('已补默认缓存配置，保存时随配置写入');
 }
 
 function showAddForm() { document.getElementById('add-form').style.display = 'block'; }
@@ -415,6 +441,34 @@ def save_config(cfg, path):
         f.write("\n")
 
 
+BUILTIN_TEST_PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAT0lEQVR42u3PsQkAAAzDsPz/dHpCp2wCzwalybTxvgEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA+Dq47PDiz8p6GQAAAABJRU5ErkJggg=="
+
+
+def _test_image_data_uri():
+    """生成一张真实测试图片的 data URI。
+
+    优先用 PIL 现场绘制 96x64 左红右蓝；PIL 不可用时退回内置 64x64 PNG。
+    """
+    try:
+        from PIL import Image, ImageDraw
+    except Exception:
+        pass
+    else:
+        try:
+            import io as _io
+            import base64 as _b64
+            img = Image.new("RGB", (96, 64), "white")
+            d = ImageDraw.Draw(img)
+            d.rectangle([0, 0, 47, 63], fill=(255, 0, 0))
+            d.rectangle([48, 0, 95, 63], fill=(0, 0, 255))
+            buf = _io.BytesIO()
+            img.save(buf, format="PNG")
+            return "data:image/png;base64," + _b64.b64encode(buf.getvalue()).decode("ascii")
+        except Exception:
+            pass
+    return "data:image/png;base64," + BUILTIN_TEST_PNG_B64
+
+
 def test_provider(p):
     import time as _time
     from urllib.request import Request, urlopen
@@ -432,7 +486,11 @@ def test_provider(p):
         return {"ok": False, "error": "缺少 base_url 或 model"}
     if not key:
         return {"ok": False, "error": "未配置 api_key"}
-    payload = {"model": model, "messages": [{"role": "user", "content": "请只回复 OK"}], "max_tokens": 16}
+    content = [
+        {"type": "image_url", "image_url": {"url": _test_image_data_uri()}},
+        {"type": "text", "text": "图中主体颜色或内容是什么？用中文一句话回答"},
+    ]
+    payload = {"model": model, "messages": [{"role": "user", "content": content}], "max_tokens": 64}
     url = base_url + "/chat/completions"
     req = Request(url, data=json.dumps(payload).encode("utf-8"), method="POST")
     req.add_header("Content-Type", "application/json")
@@ -451,7 +509,10 @@ def test_provider(p):
             reply = "".join(b.get("text", "") for b in c if isinstance(b, dict))
         else:
             reply = ""
-        return {"ok": True, "elapsed": round(elapsed, 1), "reply": (reply or "")[:120]}
+        reply = (reply or "").strip()
+        if not reply:
+            return {"ok": False, "elapsed": round(elapsed, 1), "error": "HTTP 2xx 但返回内容为空（模型可能不支持图片）"}
+        return {"ok": True, "elapsed": round(elapsed, 1), "reply": reply[:120]}
     except HTTPError as e:
         detail = ""
         try:
@@ -459,6 +520,8 @@ def test_provider(p):
         except Exception:
             pass
         return {"ok": False, "elapsed": round(_time.time() - t0, 1), "error": "HTTP %s: %s" % (e.code, detail or e.reason)}
+    except URLError as e:
+        return {"ok": False, "elapsed": round(_time.time() - t0, 1), "error": "URLError: %s" % e}
     except Exception as e:
         return {"ok": False, "elapsed": round(_time.time() - t0, 1), "error": str(e)}
 

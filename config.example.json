@@ -4,11 +4,25 @@
       "name": "modelscope-235b",
       "group": "modelscope",
       "base_url": "https://api-inference.modelscope.cn/v1",
-      "model": ["Qwen/Qwen3-VL-235B-A22B-Instruct"],
+      "model": [
+        "Qwen/Qwen3-VL-235B-A22B-Instruct"
+      ],
       "api_key": "在此填入魔搭 ModelScope token",
       "input_mode": "base64",
       "timeout": 120,
       "enabled": true
+    },
+    {
+      "name": "internai",
+      "group": "internai",
+      "base_url": "https://chat.intern-ai.org.cn/api/v1",
+      "model": [
+        "internvl3.5-latest"
+      ],
+      "api_key": "在此填入 InternAI(上海AI实验室) token；免费领取 https://internlm.intern-ai.org.cn/api/tokens",
+      "input_mode": "base64",
+      "timeout": 120,
+      "enabled": false
     },
     {
       "name": "glm",
@@ -34,7 +48,9 @@
       "name": "modelscope-8b-thinking",
       "group": "modelscope",
       "base_url": "https://api-inference.modelscope.cn/v1",
-      "model": ["Qwen/Qwen3-VL-8B-Thinking"],
+      "model": [
+        "Qwen/Qwen3-VL-8B-Thinking"
+      ],
       "api_key": "复用魔搭 ModelScope token",
       "input_mode": "base64",
       "timeout": 90,
@@ -44,7 +60,9 @@
       "name": "modelscope-8b",
       "group": "modelscope",
       "base_url": "https://api-inference.modelscope.cn/v1",
-      "model": ["Qwen/Qwen3-VL-8B-Instruct"],
+      "model": [
+        "Qwen/Qwen3-VL-8B-Instruct"
+      ],
       "api_key": "复用魔搭 ModelScope token",
       "input_mode": "base64",
       "timeout": 90,
@@ -72,12 +90,44 @@
     }
   ],
   "routing": {
-    "default_chain": ["modelscope-235b", "glm", "glm-thinking", "modelscope-8b-thinking", "modelscope-8b", "glm4v", "agnes"],
+    "default_chain": [
+      "modelscope-235b",
+      "internai",
+      "glm",
+      "glm-thinking",
+      "modelscope-8b-thinking",
+      "modelscope-8b",
+      "glm4v",
+      "agnes"
+    ],
     "overrides": {
-      "math_stem": ["glm-thinking", "glm", "modelscope-235b", "modelscope-8b-thinking", "modelscope-8b", "glm4v", "agnes"],
-      "chart": ["glm-thinking", "glm", "modelscope-235b", "modelscope-8b-thinking", "modelscope-8b", "glm4v", "agnes"]
+      "math_stem": [
+        "glm-thinking",
+        "glm",
+        "modelscope-235b",
+        "internai",
+        "modelscope-8b-thinking",
+        "modelscope-8b",
+        "glm4v",
+        "agnes"
+      ],
+      "chart": [
+        "glm-thinking",
+        "glm",
+        "modelscope-235b",
+        "internai",
+        "modelscope-8b-thinking",
+        "modelscope-8b",
+        "glm4v",
+        "agnes"
+      ]
     },
-    "multi_tasks": ["error", "math_stem", "detail", "compare"]
+    "multi_tasks": [
+      "error",
+      "math_stem",
+      "detail",
+      "compare"
+    ]
   },
   "task_check": true,
   "summarizer": "agnes",
@@ -105,5 +155,12 @@
   "web": {
     "max_page_bytes": 2000000,
     "max_images": 6
-  }
+  },
+  "cache": {
+    "enabled": true,
+    "ttl_seconds": 3600,
+    "max_entries": 200,
+    "dir": ""
+  },
+  "security_note": true
 }

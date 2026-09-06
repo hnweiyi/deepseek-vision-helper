@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""额度计数 + 频率控制。
+"""额度计数 + 频率控制 + 瞬态失败冷却。
 
 - 额度：本地 JSON 按自然日计数（全局 + 单模型），调用前主动检查，超限熔断。
 - 频率：目标组（默认魔搭）调用间做最小间隔限速，降低短时 429 概率。
+- 冷却：记录各供应商冷却到期时间，供 analyze.py 做 429/5xx 熔断换路；
+  日切换只重置额度，不清除冷却。
 
 仅依赖 Python 标准库，Python 3.8 兼容。
 """
@@ -26,7 +28,6 @@ class Quota:
         self.per_model_effective = int(self.per_model_limit * (1.0 - self.reserve_ratio))
         self.state_file = state_file
         self._lock = threading.Lock()
-        # 目标组内为串行调用，单线程访问，无需加锁
         self._last_call = 0.0
         self.state = self._load()
 
@@ -37,9 +38,13 @@ class Quota:
                 s = json.load(f)
         except Exception:
             s = {}
+        if not isinstance(s, dict):
+            s = {}
+        old_cooldowns = s.get("cooldowns", {}) if isinstance(s.get("cooldowns"), dict) else {}
         if s.get("date") != today:
-            s = {"date": today, "global_used": 0, "models": {}}
+            s = {"date": today, "global_used": 0, "models": {}, "cooldowns": old_cooldowns}
         s.setdefault("models", {})
+        s.setdefault("cooldowns", {})
         return s
 
     def _save(self):
@@ -50,7 +55,6 @@ class Quota:
             pass
 
     def check(self, provider_name, group):
-        """调用前检查额度。返回 (ok, reason)。非目标组或未启用恒放行。"""
         if not self.enabled or group != self.group:
             return (True, "")
         with self._lock:
@@ -62,7 +66,6 @@ class Quota:
         return (True, "")
 
     def consume(self, provider_name, group):
-        """发起一次目标组调用后记账。"""
         if not self.enabled or group != self.group:
             return
         with self._lock:
@@ -75,7 +78,6 @@ class Quota:
             return max(0, self.global_effective - self.state.get("global_used", 0))
 
     def throttle(self, group):
-        """目标组调用前限速：保证两次调用之间的最小间隔。"""
         if not self.enabled or group != self.group or self.min_interval <= 0:
             return
         now = time.monotonic()
@@ -83,3 +85,47 @@ class Quota:
         if wait > 0:
             time.sleep(wait)
         self._last_call = time.monotonic()
+
+    def cooldown_remaining(self, name):
+        if not name:
+            return 0.0
+        with self._lock:
+            cooldowns = self.state.setdefault("cooldowns", {})
+            expires = cooldowns.get(name)
+            if expires is None:
+                return 0.0
+            try:
+                remaining = float(expires) - time.time()
+            except Exception:
+                remaining = 0.0
+            if remaining <= 0:
+                cooldowns.pop(name, None)
+                self._save()
+                return 0.0
+            return remaining
+
+    def set_cooldown(self, name, seconds):
+        if not name:
+            return
+        try:
+            seconds = max(0.0, float(seconds))
+        except Exception:
+            return
+        with self._lock:
+            self.state.setdefault("cooldowns", {})[name] = time.time() + seconds
+            self._save()
+
+    def cooldowns_snapshot(self):
+        out = {}
+        with self._lock:
+            now = time.time()
+            for name, expires in list(self.state.setdefault("cooldowns", {}).items()):
+                try:
+                    remaining = float(expires) - now
+                except Exception:
+                    remaining = 0.0
+                if remaining > 0:
+                    out[name] = remaining
+                else:
+                    self.state["cooldowns"].pop(name, None)
+        return out

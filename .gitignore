@@ -2,3 +2,4 @@ config.json
 .quota_state.json
 __pycache__/
 *.pyc
+.cache_vision.json
