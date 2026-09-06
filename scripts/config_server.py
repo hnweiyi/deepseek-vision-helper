@@ -100,6 +100,8 @@ HTML = r'''<!DOCTYPE html>
   #multi-tasks .mt-card input { width: auto; transform: scale(1.15); margin-right: 6px; vertical-align: -2px; cursor: pointer; }
   #multi-tasks .mt-card .mt-en { font-family: Consolas, Menlo, monospace; font-size: 12px; color: #4a6cf7; margin-left: 5px; }
   #multi-tasks .mt-card .mt-desc { width: 100%; margin: 1px 0 0 21px; color: #8a94a6; font-size: 12px; }
+  #group-table th, #provider-table th { white-space: normal; line-height: 1.35; vertical-align: middle; }
+  #group-table td:nth-child(3) { word-break: break-all; }
   .chainnum { color: #8a94a6; }
   .missing { color: #c62828; }
   .upd { color: #1a56db; font-weight: 600; }
@@ -129,22 +131,24 @@ HTML = r'''<!DOCTYPE html>
         <label>api_key<input type="password" id="a-key" placeholder="明文，保存时自动加密"></label>
         <label>timeout(秒)<input type="text" id="a-timeout" value="60" style="width:70px"></label>
         <label class="ck"><input type="checkbox" id="a-enabled" checked> 启用</label>
+        <label class="ck"><input type="checkbox" id="a-multi" checked title="是否参与多模型任务(multi_tasks)并发"> 参与多模型</label>
         <label class="ck"><input type="checkbox" id="a-chain"> 加入 default_chain</label>
         <button class="mini ok" onclick="addProvider()">确认添加</button>
         <button class="mini" onclick="toggleAddForm()">取消</button>
       </div>
     </div>
     <div class="scroll">
-      <table class="grid" id="provider-table">
+      <table class="grid" id="provider-table" style="min-width:1260px">
         <thead><tr>
           <th style="width:44px" class="c">启用</th>
-          <th style="width:120px">名称 name</th>
-          <th style="width:90px">厂商 group</th>
-          <th style="width:26%">模型 model</th>
-          <th style="width:24%">接口 base_url</th>
-          <th style="width:170px">API Key</th>
-          <th style="width:70px">timeout</th>
-          <th style="width:150px">操作</th>
+          <th style="width:64px" class="c" title="是否参与多模型任务(multi_tasks)并发">多模型</th>
+          <th style="width:110px">名称 name</th>
+          <th style="width:84px">厂商 group</th>
+          <th style="width:23%">模型 model</th>
+          <th style="width:22%">接口 base_url</th>
+          <th style="width:160px">API Key</th>
+          <th style="width:64px">timeout</th>
+          <th style="width:140px">操作</th>
         </tr></thead>
         <tbody></tbody>
       </table>
@@ -193,33 +197,50 @@ HTML = r'''<!DOCTYPE html>
   </section>
 
   <section class="panel">
-    <h2>④ 分组与额度 groups / quota（多模型参与、日/月额度、限速、冷却）</h2>
+    <h2>④ 分组与额度</h2>
     <div class="frow">
       <label>组间并发上限 max_multi_groups（-1=不限）
-        <input type="number" id="g-max-multi" min="-1" value="3" style="width:120px"
+        <input type="number" id="g-max-multi" min="-1" value="3" style="width:100px"
                onchange="cfg.routing=(cfg.routing||{}); cfg.routing.max_multi_groups=parseInt(this.value)||3; dirty()"></label>
-      <button class="mini ok" onclick="refreshStatus()">刷新额度/冷却状态</button>
-      <span class="hint" style="padding-bottom:8px">行内修改后点右上「保存配置」生效；调整组开关/额度/限速均无需改代码。</span>
+      <label>日额度缓冲 reserve_ratio（0~0.9）
+        <input type="number" id="g-reserve" min="0" max="0.9" step="0.05" value="0.2" style="width:76px"
+               onchange="cfg.quota=(cfg.quota||{}); cfg.quota.reserve_ratio=Math.min(0.9,Math.max(0,parseFloat(this.value)||0)); dirty()"></label>
+      <label>熔断默认秒
+        <input type="number" id="g-cd-def" min="0" value="60" style="width:76px"
+               onchange="cfg.quota=(cfg.quota||{}); cfg.quota.cooldown_default_sec=parseInt(this.value)||0; dirty()"></label>
+      <label>熔断上限秒
+        <input type="number" id="g-cd-max" min="0" value="300" style="width:76px"
+               onchange="cfg.quota=(cfg.quota||{}); cfg.quota.cooldown_max_sec=parseInt(this.value)||0; dirty()"></label>
+      <button class="mini ok" onclick="refreshStatus()">刷新状态</button>
+      <span class="hint" style="padding-bottom:8px">行内修改后点右上「保存配置」生效；开关/限额/限速/冷却均可改。</span>
     </div>
     <div class="scroll">
-      <table class="grid" id="group-table" style="min-width:1000px">
+      <table class="grid" id="group-table" style="min-width:1150px">
         <thead><tr>
-          <th style="width:80px">参与多模型 multi</th>
-          <th style="width:170px">分组 group</th>
+          <th style="width:60px" class="c" title="组是否参与多模型任务(multi_tasks)并发">多模型</th>
+          <th style="width:140px">分组 group</th>
           <th>成员供应商（model）</th>
-          <th style="width:90px" title="计入本地自然日额度池">日计数 quota_track</th>
-          <th style="width:160px" title="月 token 免费额度，0=不限">月限 monthly_token_limit</th>
-          <th style="width:130px" title="组内调用最小间隔秒">间隔秒 min_interval_sec</th>
+          <th style="width:118px" title="全组/自然日调用上限，0=不限且不计">组日限额</th>
+          <th style="width:118px" title="单模型/自然日调用上限，0=不限且不计">模型日限额</th>
+          <th style="width:128px" title="月 token 免费额度，0=不限">月限 token</th>
+          <th style="width:104px" title="组内调用最小间隔秒">间隔秒</th>
         </tr></thead>
         <tbody></tbody>
       </table>
     </div>
-    <div id="quota-status" style="margin-top:8px;font-size:12px;color:#555;line-height:1.7"></div>
+    <div class="frow" style="margin-top:8px">
+      <span style="font-size:13px;color:#333">手动加冷却：</span>
+      <select id="cd-provider" style="min-width:170px"></select>
+      <label>秒数<input type="number" id="cd-seconds" value="60" min="1" style="width:76px"></label>
+      <button class="mini ok" onclick="addCooldown()">添加</button>
+      <span class="hint" style="padding-bottom:8px">用于临时停用某供应商；下方状态区每条冷却可单独「清除」。</span>
+    </div>
+    <div id="quota-status" style="margin-top:6px;font-size:12px;color:#555;line-height:1.7"></div>
     <p class="hint">
-      说明：multi=该组是否参与「多模型任务」并发；单模型链仍按 default_chain 顺序兜底，不受 multi 开关影响。<br>
-      quota_track=计入本地自然日额度池（默认全局 2000/日、每模型 500/日，含 reserve_ratio 熔断缓冲）。<br>
-      monthly_token_limit 单位 token，0=不限；本组调用成功后按响应 usage 累计，跨自然月自动清零。<br>
-      <b>internai（书生浦语）</b>：官方为「赠送免费额度先用、耗尽自动扣余额」，且 RPM30≈每 2 秒 1 次；默认已按 90000000 token 设月限并 2s 限速，请按控制台「剩余赠送额度」再下调。
+      说明：多模型=该组是否参与「多模型任务」并发；providers 表里每行还有单独「多模型」开关，两者都开才参与并发。<br>
+      组日限额/模型日限额 = 本地自然日调用上限（0=不限且不计），熔断生效值 = 限值 ×（1 − reserve_ratio）。<br>
+      月限 token：0=不限；调用成功后按响应 usage 累计、跨自然月清零。<br>
+      <b>internai（书生浦语）</b>：官方「赠送额度先用、耗尽自动扣余额」，默认已设月限 90000000 token + 2s 限速，请按控制台剩余赠送额度下调。
     </p>
   </section>
 
@@ -283,7 +304,8 @@ function providerRow(p){
   tr.dataset.name = p.name;
   const ks = keyStateOf(p.api_key);
   const tdHtml =
-    '<td class="c"><input type="checkbox" class="p-en"' + (p.enabled ? ' checked' : '') + '></td>' +
+    '<td class="c"><input type="checkbox" class="p-en" title="是否启用"' + (p.enabled ? ' checked' : '') + '></td>' +
+    '<td class="c"><input type="checkbox" class="p-multi" title="是否参与多模型任务(multi_tasks)并发"' + (p.multi !== false ? ' checked' : '') + '></td>' +
     '<td><span class="pname">' + esc(p.name) + '</span></td>' +
     '<td><input type="text" class="p-group" value="' + esc(p.group || '') + '" placeholder="厂商"></td>' +
     '<td><input type="text" class="p-model" value="' + esc(modelStr(p.model)) + '" placeholder="多候选逗号分隔"></td>' +
@@ -297,6 +319,9 @@ function providerRow(p){
 
   const en = tr.querySelector('.p-en');
   en.onchange = function(){ p.enabled = en.checked; dirty(); };
+
+  const mu = tr.querySelector('.p-multi');
+  mu.onchange = function(){ p.multi = mu.checked; dirty(); };
 
   tr.querySelector('.p-group').oninput = function(e){ p.group = e.target.value.trim(); dirty(); };
   tr.querySelector('.p-model').oninput = function(e){ p.model = parseModel(e.target.value); dirty(); };
@@ -329,7 +354,7 @@ function renderProviders(){
   });
   if (!arr.length){
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td colspan="8" style="color:#8a94a6;text-align:center;padding:16px">暂无供应商，点右上「+ 添加供应商」添加</td>';
+    tr.innerHTML = '<td colspan="9" style="color:#8a94a6;text-align:center;padding:16px">暂无供应商，点右上「+ 添加供应商」添加</td>';
     tb.appendChild(tr);
   } else {
     arr.forEach(function(p){ tb.appendChild(providerRow(p)); });
@@ -351,15 +376,17 @@ function addProvider(){
   const key = document.getElementById('a-key').value.trim();
   const timeout = parseInt(document.getElementById('a-timeout').value, 10) || 60;
   const enabled = document.getElementById('a-enabled').checked;
+  const multi = document.getElementById('a-multi').checked;
   const joinChain = document.getElementById('a-chain').checked;
   cfg.providers.push({
     name: name, group: group, base_url: base_url,
-    model: m, api_key: key || '', input_mode: 'base64', timeout: timeout, enabled: enabled
+    model: m, api_key: key || '', input_mode: 'base64', timeout: timeout, enabled: enabled, multi: multi
   });
   if (joinChain && cfg.routing.default_chain.indexOf(name) < 0) cfg.routing.default_chain.push(name);
   ['a-name','a-group','a-base','a-model','a-key'].forEach(function(id){ document.getElementById(id).value = ''; });
   document.getElementById('a-timeout').value = '60';
   document.getElementById('a-enabled').checked = true;
+  document.getElementById('a-multi').checked = true;
   document.getElementById('a-chain').checked = false;
   document.getElementById('add-form').style.display = 'none';
   renderAll();
@@ -555,7 +582,8 @@ function ensureGroups(){
     let e = cfg.groups[g];
     if (!e || typeof e !== 'object'){ e = {}; cfg.groups[g] = e; }
     if (typeof e.multi !== 'boolean') e.multi = true;
-    if (typeof e.quota_track !== 'boolean') e.quota_track = false;
+    if (e.daily_group_limit === undefined || e.daily_group_limit === null) e.daily_group_limit = 0;
+    if (e.daily_model_limit === undefined || e.daily_model_limit === null) e.daily_model_limit = 0;
     if (e.min_interval_sec === undefined || e.min_interval_sec === null) e.min_interval_sec = 0;
     if (e.monthly_token_limit === undefined || e.monthly_token_limit === null) e.monthly_token_limit = 0;
   });
@@ -563,7 +591,11 @@ function ensureGroups(){
 function renderGroups(){
   ensureGroups();
   const r = cfg.routing || (cfg.routing = {});
+  const q = cfg.quota || (cfg.quota = {});
   document.getElementById('g-max-multi').value = (r.max_multi_groups == null ? 3 : r.max_multi_groups);
+  document.getElementById('g-reserve').value = (q.reserve_ratio == null ? 0.2 : q.reserve_ratio);
+  document.getElementById('g-cd-def').value = (q.cooldown_default_sec == null ? 60 : q.cooldown_default_sec);
+  document.getElementById('g-cd-max').value = (q.cooldown_max_sec == null ? 300 : q.cooldown_max_sec);
   const byg = {};
   cfg.providers.forEach(function(p){ const g = (p.group || 'other').trim() || 'other'; (byg[g] = byg[g] || []).push(p); });
   const tb = document.querySelector('#group-table tbody');
@@ -574,7 +606,7 @@ function renderGroups(){
     const td0 = document.createElement('td'); td0.className = 'c';
     const cb0 = document.createElement('input'); cb0.type = 'checkbox';
     cb0.checked = e.multi !== false;
-    cb0.title = '是否参与多模型并发';
+    cb0.title = '组是否参与多模型并发';
     cb0.onchange = function(){ e.multi = cb0.checked; dirty(); };
     td0.appendChild(cb0);
     const td1 = document.createElement('td');
@@ -582,32 +614,51 @@ function renderGroups(){
     td1.appendChild(sp);
     const td2 = document.createElement('td');
     td2.style.fontSize = '12px';
-    td2.textContent = byg[g].map(function(p){ return p.name + ' [' + modelStr(p.model) + ']' + (p.enabled === false ? '（关闭）' : ''); }).join('；');
-    const td3 = document.createElement('td'); td3.className = 'c';
-    const cb3 = document.createElement('input'); cb3.type = 'checkbox';
-    cb3.checked = !!e.quota_track;
-    cb3.title = '是否计入本地自然日额度池';
-    cb3.onchange = function(){ e.quota_track = cb3.checked; dirty(); };
-    td3.appendChild(cb3);
+    td2.textContent = byg[g].map(function(p){
+      const flags = [];
+      if (p.enabled === false) flags.push('关');
+      if (p.multi === false) flags.push('多模型关');
+      return p.name + ' [' + modelStr(p.model) + ']' + (flags.length ? '（' + flags.join('、') + '）' : '');
+    }).join('；');
+    const td3 = document.createElement('td');
+    const in3 = document.createElement('input'); in3.type = 'number'; in3.min = '0'; in3.step = '100';
+    in3.value = e.daily_group_limit || 0;
+    in3.title = '全组/自然日调用上限，0=不限且不计';
+    in3.onchange = function(){ e.daily_group_limit = Math.max(0, parseInt(this.value) || 0); dirty(); };
+    td3.appendChild(in3);
     const td4 = document.createElement('td');
-    const in4 = document.createElement('input'); in4.type = 'number'; in4.min = '0'; in4.step = '1000000';
-    in4.value = e.monthly_token_limit || 0;
-    in4.title = '月 token 免费额度，0=不限';
-    in4.onchange = function(){ e.monthly_token_limit = Math.max(0, parseInt(this.value) || 0); dirty(); };
+    const in4 = document.createElement('input'); in4.type = 'number'; in4.min = '0'; in4.step = '100';
+    in4.value = e.daily_model_limit || 0;
+    in4.title = '单模型/自然日调用上限，0=不限且不计';
+    in4.onchange = function(){ e.daily_model_limit = Math.max(0, parseInt(this.value) || 0); dirty(); };
     td4.appendChild(in4);
     const td5 = document.createElement('td');
-    const in5 = document.createElement('input'); in5.type = 'number'; in5.min = '0'; in5.step = '0.5';
-    in5.value = e.min_interval_sec || 0;
-    in5.title = '组内调用最小间隔秒';
-    in5.onchange = function(){ e.min_interval_sec = Math.max(0, parseFloat(this.value) || 0); dirty(); };
+    const in5 = document.createElement('input'); in5.type = 'number'; in5.min = '0'; in5.step = '1000000';
+    in5.value = e.monthly_token_limit || 0;
+    in5.title = '月 token 免费额度，0=不限';
+    in5.onchange = function(){ e.monthly_token_limit = Math.max(0, parseInt(this.value) || 0); dirty(); };
     td5.appendChild(in5);
-    tr.appendChild(td0); tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3); tr.appendChild(td4); tr.appendChild(td5);
+    const td6 = document.createElement('td');
+    const in6 = document.createElement('input'); in6.type = 'number'; in6.min = '0'; in6.step = '0.5';
+    in6.value = e.min_interval_sec || 0;
+    in6.title = '组内调用最小间隔秒';
+    in6.onchange = function(){ e.min_interval_sec = Math.max(0, parseFloat(this.value) || 0); dirty(); };
+    td6.appendChild(in6);
+    tr.appendChild(td0); tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3); tr.appendChild(td4); tr.appendChild(td5); tr.appendChild(td6);
     tb.appendChild(tr);
   });
 }
 async function refreshStatus(){
   const box = document.getElementById('quota-status');
   box.textContent = '额度/冷却状态加载中…';
+  const sel = document.getElementById('cd-provider');
+  if (sel && sel.options.length === 0 && cfg && cfg.providers){
+    cfg.providers.forEach(function(p){
+      const o = document.createElement('option');
+      o.value = p.name; o.textContent = p.name + '（' + (p.group || '') + '）';
+      sel.appendChild(o);
+    });
+  }
   try {
     const r = await fetch('/api/status');
     const d = await r.json();
@@ -617,19 +668,22 @@ async function refreshStatus(){
     const cd = d.cooldowns || {};
     const keys = Object.keys(cd);
     if (keys.length){
-      h += keys.map(function(k){ return esc(k) + ' 剩余 ' + cd[k] + 's'; }).join('、');
-      h += ' <button class="mini danger" onclick="clearCooldown()">清除全部冷却</button>';
+      h += keys.map(function(k){
+        return esc(k) + ' 剩余 ' + cd[k] + 's <button class="mini" onclick="clearCooldown(\'' + esc(k) + '\')">清除</button>';
+      }).join('　');
+      h += ' <button class="mini danger" onclick="clearCooldownAll()">清除全部冷却</button>';
     } else {
       h += '无';
     }
     h += '<br>';
     (d.groups || []).forEach(function(g){
       h += '<b>' + esc(groupZh(g.name) + ' ' + g.name) + '</b>（' + g.members.map(function(m){ return m.name; }).join('、') + '）：';
-      if (g.quota_track && g.day_remaining != null){
-        h += '今日剩余 ' + g.day_remaining + '（熔断线 ' + g.day_effective + '）';
+      if (g.daily_group_limit > 0 || g.daily_model_limit > 0){
+        h += '今日组池 ' + (g.group_used || 0) + '（余 ' + g.group_remaining + '，熔断线 ' + g.group_effective + '）';
+        if (g.daily_model_limit > 0) h += '；单模型日限 ' + g.daily_model_limit;
       }
       if (g.monthly_token_limit > 0){
-        h += (g.quota_track && g.day_remaining != null ? '；' : '') + '本月已用 ' + (g.month_used || 0) + '/' + g.monthly_token_limit + ' token';
+        h += (g.daily_group_limit > 0 || g.daily_model_limit > 0 ? '；' : '') + '本月已用 ' + (g.month_used || 0) + '/' + g.monthly_token_limit + ' token';
         if (g.month_remaining != null) h += '（余 ' + g.month_remaining + '）';
       }
       h += '<br>';
@@ -640,7 +694,24 @@ async function refreshStatus(){
     box.textContent = '状态获取异常：' + e;
   }
 }
-async function clearCooldown(){
+async function cooldownPost(name, seconds){
+  try {
+    await fetch('/api/cooldown', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, seconds: seconds }) });
+  } catch (e) {}
+}
+async function addCooldown(){
+  const name = document.getElementById('cd-provider').value;
+  if (!name){ msg('请选择供应商'); return; }
+  const sec = Math.max(1, parseInt(document.getElementById('cd-seconds').value, 10) || 60);
+  await cooldownPost(name, sec);
+  refreshStatus();
+  msg('已为 ' + name + ' 设置冷却 ' + sec + 's');
+}
+async function clearCooldown(name){
+  await cooldownPost(name, 0);
+  refreshStatus();
+}
+async function clearCooldownAll(){
   try { await fetch('/api/clear_cooldown', { method: 'POST' }); refreshStatus(); } catch (e) {}
 }
 
@@ -891,7 +962,6 @@ def _status_payload(cfg):
             out["cooldowns"] = {k: round(v, 1) for k, v in quota.cooldowns_snapshot().items()}
         except Exception:
             pass
-    track = [str(x) for x in (qcfg.get("track_groups") or [])]
     for gname in sorted(groups.keys()):
         pros = groups[gname]
         gc = (cfg.get("groups") or {}).get(gname) or {}
@@ -902,21 +972,24 @@ def _status_payload(cfg):
                 m = m[0] if m else ""
             members.append({
                 "name": p.get("name"), "enabled": bool(p.get("enabled", True)),
+                "multi": bool(p.get("multi", True)),
                 "model": m or "", "has_key": bool(p.get("api_key")),
             })
         entry = {
             "name": gname,
             "members": members,
             "multi": bool(gc.get("multi", True)),
-            "quota_track": bool(gc.get("quota_track", gname in track)),
+            "daily_group_limit": int(gc.get("daily_group_limit", 0) or 0),
+            "daily_model_limit": int(gc.get("daily_model_limit", 0) or 0),
             "min_interval_sec": float(gc.get("min_interval_sec", 0.0) or 0.0),
             "monthly_token_limit": int(gc.get("monthly_token_limit", 0) or 0),
         }
         if quota is not None:
             try:
-                if quota.daily_track(gname):
-                    entry["day_remaining"] = quota.remaining()
-                    entry["day_effective"] = quota.global_effective
+                if quota.daily_active(gname):
+                    entry["group_used"] = quota.group_used(gname)
+                    entry["group_remaining"] = quota.group_remaining(gname)
+                    entry["group_effective"] = quota.group_effective(gname)
                 if quota.monthly_limit(gname) > 0:
                     entry["month_used"] = sum(quota.month_usage(gname).values())
                     entry["month_remaining"] = quota.month_remaining(gname)
@@ -942,6 +1015,28 @@ def _clear_cooldowns(path):
     s["cooldowns"] = {}
     with open(state_file, "w", encoding="utf-8") as f:
         json.dump(s, f, ensure_ascii=False)
+    return {"ok": True}
+
+
+def _set_cooldown(path, name, seconds):
+    """设置/清除单个 provider 冷却；seconds<=0 为清除。只改 cooldowns 键，不动额度计数。"""
+    if _quota_state_file is None or _make_quota is None:
+        return {"ok": False, "error": "quota 模块不可用"}
+    try:
+        quota = _make_quota(load_config(path))
+    except Exception as e:
+        return {"ok": False, "error": "quota 初始化失败: %s" % e}
+    try:
+        seconds = float(seconds)
+    except Exception:
+        seconds = 0.0
+    try:
+        if seconds <= 0:
+            quota.clear_cooldown(name)
+        else:
+            quota.set_cooldown(name, seconds)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
     return {"ok": True}
 
 
@@ -1007,6 +1102,17 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("config 缺少 providers")
                 save_config(cfg, self.config_path)
                 self._json({"ok": True, "config": public_config(load_config(self.config_path))})
+            except Exception as e:
+                self._json({"ok": False, "error": str(e)}, 500)
+        elif self.path == "/api/cooldown":
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                data = json.loads(self.rfile.read(length).decode("utf-8"))
+                name = data.get("name")
+                if not name:
+                    self._json({"ok": False, "error": "缺少 name"}, 400)
+                else:
+                    self._json(_set_cooldown(self.config_path, name, data.get("seconds", 0)))
             except Exception as e:
                 self._json({"ok": False, "error": str(e)}, 500)
         elif self.path == "/api/clear_cooldown":

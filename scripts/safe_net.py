@@ -109,10 +109,10 @@ def _decompress(data, enc, max_bytes):
     raise SafeNetError("解压失败：%s" % last_err)
 
 
-def safe_download(url, allow_private=False, max_bytes=8000000, timeout=20):
+def safe_download(url, allow_private=False, max_bytes=8000000, timeout=20, max_redirects=5):
     opener = build_opener(_NoRedirect())
     current = url
-    for _hop in range(MAX_REDIRECTS + 1):
+    for _hop in range(int(max_redirects) + 1):
         validate_url(current, allow_private)
         req = Request(current, headers={"User-Agent": DEFAULT_UA, "Accept": "*/*"})
         try:

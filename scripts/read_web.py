@@ -222,7 +222,7 @@ def main(argv=None):
     timeout = int(cfg.get("download_timeout", 20))
     allow_local = bool(cfg.get("allow_local_url", False))
     max_images = args.max_images if args.max_images is not None else int(web.get("max_images", 6))
-    max_size = 999999 if args.no_downscale else analyze.resolve_max_size(args.max_size, cfg.get("max_size", "auto"), args.task)
+    max_size = 999999 if args.no_downscale else analyze.resolve_max_size(args.max_size, cfg.get("max_size", "auto"), args.task, cfg)
     auto_trim = args.auto_trim or bool(cfg.get("auto_trim", False))
     quality = int(cfg.get("jpeg_quality", 88))
 
@@ -230,7 +230,8 @@ def main(argv=None):
     for url in args.urls:
         item = {"url": url}
         try:
-            page_bytes, page_ctype = safe_download(url, allow_private=allow_local, max_bytes=page_max, timeout=timeout)
+            page_bytes, page_ctype = safe_download(url, allow_private=allow_local, max_bytes=page_max, timeout=timeout,
+                                                  max_redirects=int(cfg.get("max_redirects", 5)))
         except SafeNetError as e:
             item["error"] = str(e)
             results.append(item)
@@ -257,7 +258,8 @@ def main(argv=None):
         if not args.no_images:
             for im in page["images"][:max_images]:
                 try:
-                    data, ctype = safe_download(im["url"], allow_private=allow_local, max_bytes=img_max, timeout=timeout)
+                    data, ctype = safe_download(im["url"], allow_private=allow_local, max_bytes=img_max, timeout=timeout,
+                                                max_redirects=int(cfg.get("max_redirects", 5)))
                 except SafeNetError as e:
                     fail_images.append({"url": im["url"], "reason": str(e)})
                     continue

@@ -10,7 +10,8 @@
       "api_key": "在此填入魔搭 ModelScope token",
       "input_mode": "base64",
       "timeout": 120,
-      "enabled": true
+      "enabled": true,
+      "multi": true
     },
     {
       "name": "internai",
@@ -22,7 +23,8 @@
       "api_key": "在此填入 InternAI(上海AI实验室) token；免费领取 https://internlm.intern-ai.org.cn/api/tokens",
       "input_mode": "base64",
       "timeout": 120,
-      "enabled": false
+      "enabled": false,
+      "multi": true
     },
     {
       "name": "glm",
@@ -32,7 +34,8 @@
       "api_key": "在此填入智谱API Key；也可用 scripts/encrypt_key.py 生成 dpapi: 加密串",
       "input_mode": "base64",
       "timeout": 60,
-      "enabled": true
+      "enabled": true,
+      "multi": true
     },
     {
       "name": "glm-thinking",
@@ -42,7 +45,8 @@
       "api_key": "复用智谱API Key",
       "input_mode": "base64",
       "timeout": 90,
-      "enabled": true
+      "enabled": true,
+      "multi": true
     },
     {
       "name": "modelscope-8b-thinking",
@@ -54,7 +58,8 @@
       "api_key": "复用魔搭 ModelScope token",
       "input_mode": "base64",
       "timeout": 90,
-      "enabled": true
+      "enabled": true,
+      "multi": true
     },
     {
       "name": "modelscope-8b",
@@ -66,7 +71,8 @@
       "api_key": "复用魔搭 ModelScope token",
       "input_mode": "base64",
       "timeout": 90,
-      "enabled": true
+      "enabled": true,
+      "multi": true
     },
     {
       "name": "glm4v",
@@ -76,7 +82,8 @@
       "api_key": "复用智谱API Key",
       "input_mode": "base64",
       "timeout": 60,
-      "enabled": true
+      "enabled": true,
+      "multi": true
     },
     {
       "name": "agnes",
@@ -86,7 +93,8 @@
       "api_key": "在此填入Agnes API Key",
       "input_mode": "base64",
       "timeout": 60,
-      "enabled": true
+      "enabled": true,
+      "multi": true
     }
   ],
   "routing": {
@@ -134,14 +142,11 @@
   "summarizer": "agnes",
   "quota": {
     "enabled": true,
-    "global_daily": 2000,
-    "per_model_daily": 500,
     "reserve_ratio": 0.2,
     "min_interval_sec": 5,
     "state_file": "",
-    "track_groups": [
-      "modelscope"
-    ]
+    "cooldown_default_sec": 60,
+    "cooldown_max_sec": 300
   },
   "max_size": "auto",
   "jpeg_quality": 88,
@@ -170,26 +175,81 @@
     "modelscope": {
       "multi": true,
       "min_interval_sec": 5.0,
-      "quota_track": true,
-      "monthly_token_limit": 0
+      "monthly_token_limit": 0,
+      "daily_group_limit": 2000,
+      "daily_model_limit": 500
     },
     "glm": {
       "multi": true,
       "min_interval_sec": 0.0,
-      "quota_track": false,
-      "monthly_token_limit": 0
+      "monthly_token_limit": 0,
+      "daily_group_limit": 0,
+      "daily_model_limit": 0
     },
     "agnes": {
       "multi": true,
       "min_interval_sec": 0.0,
-      "quota_track": false,
-      "monthly_token_limit": 0
+      "monthly_token_limit": 0,
+      "daily_group_limit": 0,
+      "daily_model_limit": 0
     },
     "internai": {
       "multi": true,
       "min_interval_sec": 2.0,
-      "quota_track": false,
-      "monthly_token_limit": 90000000
+      "monthly_token_limit": 90000000,
+      "daily_group_limit": 0,
+      "daily_model_limit": 0
     }
-  }
+  },
+  "tasks": {
+    "general": {
+      "max_size": 1568,
+      "focus": "请描述这张图片的内容"
+    },
+    "ocr": {
+      "max_size": 2048,
+      "focus": "请逐字提取图中所有文字"
+    },
+    "error": {
+      "max_size": 2048,
+      "focus": "请定位图中的报错/异常信息"
+    },
+    "ui": {
+      "max_size": 1568,
+      "focus": "请分析界面布局与 UI 问题"
+    },
+    "chart": {
+      "max_size": 1568,
+      "focus": "请解读图表数据"
+    },
+    "compare": {
+      "max_size": 1568,
+      "focus": "请对比这些图片并指出异同"
+    },
+    "document": {
+      "max_size": 2048,
+      "focus": "请提取文档的结构化内容"
+    },
+    "math_stem": {
+      "max_size": 1568,
+      "focus": "请解答图中的题目并给出步骤"
+    },
+    "detail": {
+      "max_size": 2048,
+      "focus": "请观察并描述图中的细节"
+    },
+    "video": {
+      "max_size": 1568,
+      "focus": "请描述视频帧/截图的内容"
+    },
+    "unknown": {
+      "max_size": 1568,
+      "focus": "请描述这张图片的内容"
+    }
+  },
+  "doctor": {
+    "timeout_sec": 15,
+    "max_concurrent": 4
+  },
+  "max_redirects": 5
 }

@@ -2,13 +2,22 @@
 # -*- coding: utf-8 -*-
 """额度计数 + 频率控制 + 瞬态失败冷却。
 
-- 日额度：本地 JSON 按自然日计数（全局 + 单模型），只对 quota_track 开启的组生效；
-  旧版单值 quota.group 自动按 track_groups=["<group>"] 兼容。
-- 月额度：按自然月累计各供应商响应 usage 上报的 token；组级 monthly_token_limit>0 才熔断
-  （0 = 无限制，如魔搭/智谱/agnes 免费接口；internai 官方按月免费额度，耗尽会扣余额，故建议配置）。
-- 频率：按组最小间隔限速（组配置覆盖全局），降低短时 429 概率。
-- 冷却：记录各供应商冷却到期时间，供 analyze.py 做 429/5xx 熔断换路；
+- 日额度（组级双限值，0 = 不限且不计）：
+  * daily_group_limit：全组/自然日，组内所有 provider 共享一个组池；
+  * daily_model_limit：单 provider/自然日；
+  两个限值都套用 reserve_ratio 缓冲（熔断生效值 = 限值 x (1 - reserve_ratio)）。
+- 月额度：按自然月累计各 provider 响应 usage 上报的 token；组级 monthly_token_limit>0 才熔断。
+- 频率：按组最小间隔限速（组配置覆盖全局）。
+- 冷却：记录各 provider 冷却到期时间，供 analyze.py 做 429/5xx 熔断换路；
   日/月切换只重置额度，不清除冷却。
+
+状态文件结构（.quota_state.json）：
+  {"date": "YYYY-MM-DD",
+   "group_used": {"<组>": n},          # 组池自然日计数
+   "models": {"<provider>": n},        # 单 provider 自然日计数
+   "months": {"YYYY-MM": {"<provider>": tokens}},
+   "cooldowns": {"<provider>": unix_ts}}
+旧版 global_used 单池会在加载时自动并入首个有日限额的组。
 
 仅依赖 Python 标准库，Python 3.8 兼容。
 """
@@ -26,17 +35,8 @@ class Quota:
     def __init__(self, cfg, state_file, groups_cfg=None, members=None):
         cfg = cfg or {}
         self.enabled = bool(cfg.get("enabled", True))
-        legacy = cfg.get("group")
-        track = cfg.get("track_groups")
-        if not track:
-            track = [legacy] if legacy else ["modelscope"]
-        self.track_groups = [str(x) for x in track]
-        self.global_limit = int(cfg.get("global_daily", 2000))
-        self.per_model_limit = int(cfg.get("per_model_daily", 500))
         self.reserve_ratio = float(cfg.get("reserve_ratio", 0.2))
         self.min_interval = float(cfg.get("min_interval_sec", 5.0))
-        self.global_effective = int(self.global_limit * (1.0 - self.reserve_ratio))
-        self.per_model_effective = int(self.per_model_limit * (1.0 - self.reserve_ratio))
         self.state_file = state_file
         self.groups_cfg = groups_cfg if isinstance(groups_cfg, dict) else {}
         self.members = members if isinstance(members, dict) else {}
@@ -49,20 +49,37 @@ class Quota:
         gc = self.groups_cfg.get(g)
         return gc if isinstance(gc, dict) else {}
 
-    def daily_track(self, g):
-        """该组是否计入本地自然日额度池。"""
-        gc = self._gcfg(g)
-        if "quota_track" in gc:
-            return self.enabled and bool(gc.get("quota_track"))
-        return self.enabled and (str(g) in self.track_groups)
+    def _int0(self, v):
+        try:
+            return max(0, int(v or 0))
+        except Exception:
+            return 0
+
+    def daily_group_limit(self, g):
+        """全组/自然日限额；0 = 不限制且不计。"""
+        return self._int0(self._gcfg(g).get("daily_group_limit"))
+
+    def daily_model_limit(self, g):
+        """单 provider/自然日限额；0 = 不限制且不计。"""
+        return self._int0(self._gcfg(g).get("daily_model_limit"))
+
+    def daily_active(self, g):
+        """该组是否启用本地日计数（任一限值 > 0）。"""
+        return self.daily_group_limit(g) > 0 or self.daily_model_limit(g) > 0
+
+    def group_effective(self, g):
+        """组池熔断生效值（套 reserve_ratio 缓冲）。"""
+        lim = self.daily_group_limit(g)
+        return int(lim * (1.0 - self.reserve_ratio)) if lim > 0 else 0
+
+    def model_effective(self, g):
+        """单 provider 熔断生效值（套 reserve_ratio 缓冲）。"""
+        lim = self.daily_model_limit(g)
+        return int(lim * (1.0 - self.reserve_ratio)) if lim > 0 else 0
 
     def monthly_limit(self, g):
         """该组月度 token 免费额度上限；0 = 不限制。"""
-        gc = self._gcfg(g)
-        try:
-            return max(0, int(gc.get("monthly_token_limit", 0) or 0))
-        except Exception:
-            return 0
+        return self._int0(self._gcfg(g).get("monthly_token_limit"))
 
     def interval_for(self, g):
         """组级最小调用间隔；组未配置时回退全局。"""
@@ -91,15 +108,42 @@ class Quota:
         if not isinstance(s, dict):
             s = {}
         old_cooldowns = s.get("cooldowns", {}) if isinstance(s.get("cooldowns"), dict) else {}
+        old_months = s.get("months", {}) if isinstance(s.get("months"), dict) else {}
         if s.get("date") != today:
-            s = {"date": today, "global_used": 0, "models": {}, "cooldowns": old_cooldowns}
+            s = {"date": today, "group_used": {}, "models": {}, "cooldowns": old_cooldowns, "months": old_months}
+        # 一次性迁移：旧 global_used 单池 -> group_used（归首个有日限额的组）
+        if "group_used" not in s:
+            s["group_used"] = {}
+            if "global_used" in s:
+                try:
+                    n = int(s.get("global_used", 0) or 0)
+                except Exception:
+                    n = 0
+                if n > 0:
+                    target = None
+                    for g in sorted(self.members.keys()):
+                        if self.daily_group_limit(g) > 0:
+                            target = g
+                            break
+                    if target is None and "modelscope" in self.members:
+                        target = "modelscope"
+                    if target:
+                        s["group_used"][target] = s["group_used"].get(target, 0) + n
+                s.pop("global_used", None)
+        s.setdefault("group_used", {})
+        if not isinstance(s["group_used"], dict):
+            s["group_used"] = {}
         s.setdefault("models", {})
+        if not isinstance(s["models"], dict):
+            s["models"] = {}
         s.setdefault("cooldowns", {})
+        if not isinstance(s["cooldowns"], dict):
+            s["cooldowns"] = {}
         months = s.get("months")
         if not isinstance(months, dict):
             months = {}
         keys = sorted(months.keys())
-        if len(keys) > 2:  # 只保留最近两个自然月，避免 state 无限膨胀
+        if len(keys) > 2:  # 只保留最近两个自然月
             months = {k: months[k] for k in keys[-2:]}
         s["months"] = months
         return s
@@ -115,13 +159,20 @@ class Quota:
     def check(self, provider_name, group):
         if not self.enabled:
             return (True, "")
-        if self.daily_track(group):
+        gl = self.daily_group_limit(group)
+        if gl > 0:
             with self._lock:
-                if self.state["global_used"] >= self.global_effective:
-                    return (False, "全局日额度已尽(%d/%d)" % (self.state["global_used"], self.global_effective))
+                used = self.state["group_used"].get(group, 0)
+                eff = self.group_effective(group)
+                if used >= eff:
+                    return (False, "组日额度已尽(%d/%d)" % (used, gl))
+        ml = self.daily_model_limit(group)
+        if ml > 0:
+            with self._lock:
                 used = self.state["models"].get(provider_name, 0)
-                if used >= self.per_model_effective:
-                    return (False, "模型日额度已尽(%d/%d)" % (used, self.per_model_effective))
+                eff = self.model_effective(group)
+                if used >= eff:
+                    return (False, "模型日额度已尽(%d/%d)" % (used, ml))
         lim = self.monthly_limit(group)
         if lim > 0:
             used = self._month_used(group)
@@ -130,12 +181,20 @@ class Quota:
         return (True, "")
 
     def consume(self, provider_name, group):
-        if not self.daily_track(group):
+        gl = self.daily_group_limit(group)
+        ml = self.daily_model_limit(group)
+        if gl <= 0 and ml <= 0:
             return
         with self._lock:
-            self.state["global_used"] = self.state.get("global_used", 0) + 1
-            self.state["models"][provider_name] = self.state["models"].get(provider_name, 0) + 1
-            self._save()
+            changed = False
+            if gl > 0:
+                self.state["group_used"][group] = self.state["group_used"].get(group, 0) + 1
+                changed = True
+            if ml > 0:
+                self.state["models"][provider_name] = self.state["models"].get(provider_name, 0) + 1
+                changed = True
+            if changed:
+                self._save()
 
     def consume_tokens(self, provider_name, group, tokens):
         """调用成功后按响应 usage 上报 token；仅对设置月限的组有意义。"""
@@ -154,9 +213,19 @@ class Quota:
             m[provider_name] = m.get(provider_name, 0) + tokens
             self._save()
 
-    def remaining(self):
+    def group_used(self, group):
         with self._lock:
-            return max(0, self.global_effective - self.state.get("global_used", 0))
+            return int(self.state["group_used"].get(group, 0))
+
+    def group_remaining(self, group):
+        eff = self.group_effective(group)
+        if eff <= 0:
+            return None
+        return max(0, eff - self.group_used(group))
+
+    def model_used(self, provider_name):
+        with self._lock:
+            return int(self.state["models"].get(provider_name, 0))
 
     # ---------- 月额度 ----------
     def _month_used(self, group, ym=None):
@@ -229,6 +298,16 @@ class Quota:
         with self._lock:
             self.state.setdefault("cooldowns", {})[name] = time.time() + seconds
             self._save()
+
+    def clear_cooldown(self, name):
+        """清除单个 provider 的冷却记录。"""
+        if not name:
+            return
+        with self._lock:
+            cooldowns = self.state.setdefault("cooldowns", {})
+            if name in cooldowns:
+                cooldowns.pop(name, None)
+                self._save()
 
     def cooldowns_snapshot(self):
         out = {}

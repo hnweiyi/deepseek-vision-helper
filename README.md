@@ -273,7 +273,7 @@ py -3.8 "<技能目录>\scripts\analyze.py" --doctor [--json]
 
 ### 关键任务多模型 + Agnes 汇总
 
-`multi_tasks = error / math_stem / detail / compare`：自动按 `groups` 里 **multi=true 的分组并发**（默认魔搭 / 智谱 / Agnes / InternAI 四组——InternAI 未启用时实际三组；组内失败自动降级、组间并发数受 `max_multi_groups` 限制），各组结果交给 **Agnes 融合成一份结论**返回；Agnes 不通时返回多份由主模型兜底。
+`multi_tasks = error / math_stem / detail / compare`：自动按 `groups` 里 **multi=true 的分组**且组内 **`providers[].multi=true` 的模型**并发（默认魔搭 / 智谱 / Agnes / InternAI 四组；组内失败自动降级、组间并发数受 `max_multi_groups` 限制），各组结果交给 **Agnes 融合成一份结论**返回；Agnes 不通时返回多份由主模型兜底。
 
 - 手动强制：`--multi`（多模型+汇总）、`--serial`（强制单模型）。
 
@@ -305,6 +305,7 @@ py -3.8 "<技能目录>\scripts\analyze.py" --doctor [--json]
 | `input_mode` | 图片输入方式（base64 / url） |
 | `timeout` | 超时秒数 |
 | `enabled` | 是否启用 |
+| `multi` | 是否参与「多模型任务」并发（默认 true；false = 仅走单模型链，不参与多模型并发） |
 
 > **可选 InternAI 模板**：`providers` 里内置 `internai`（`enabled: false`），`base_url` = `https://chat.intern-ai.org.cn/api/v1`，`model` = `["internvl3.5-latest"]`（指向 InternVL3.5-241B-A28B）。免费 key 领取：<https://internlm.intern-ai.org.cn/api/tokens>（赠送免费额度 9000 万 token/月、30 RPM、大陆直连、OpenAI 兼容；耗尽自动扣余额，建议在 ④ 面板设月限防扣费）。把它 `enabled` 改为 `true` 并填 key，即自动进入 `default_chain` / `overrides`（模板里已插入位置）。
 
@@ -327,32 +328,35 @@ py -3.8 "<技能目录>\scripts\analyze.py" --doctor [--json]
 - `multi_tasks`：哪些任务自动多模型 + Agnes 汇总。
 - `max_multi_groups`：多模型并发时**组间并发上限**（默认 3，-1 = 不限；实际并发数 = min(参与组数, 该值)）。
 
-### quota（本地日额度）
+### quota（日额度缓冲 / 限速 / 熔断冷却）
 
 ```json
-"quota": { "enabled": true, "track_groups": ["modelscope"], "global_daily": 2000, "per_model_daily": 500, "reserve_ratio": 0.2, "min_interval_sec": 5, "state_file": "" }
+"quota": { "enabled": true, "reserve_ratio": 0.2, "min_interval_sec": 5, "cooldown_default_sec": 60, "cooldown_max_sec": 300, "state_file": "" }
 ```
 
-- `track_groups`：哪些组计入本地自然日额度池（默认只 `modelscope`）；旧版单值 `group` 字段会自动迁移。
-- `global_daily` / `per_model_daily`：全局与单模型日上限；`reserve_ratio`：熔断缓冲（0.2 = 用到 80% 即停）。
+- `enabled`：本地额度/限速总开关；`reserve_ratio`：熔断缓冲（0.2 = 用到 80% 即停，对组池与单模型两个限值都生效）。
 - `min_interval_sec`：全局默认最小调用间隔（组级可在 `groups` 覆盖）。
+- `cooldown_default_sec` / `cooldown_max_sec`：429/5xx 熔断冷却的默认秒数与上限（缺省 60/300）。
+- `state_file`：状态文件路径（空 = config 同目录 `.quota_state.json`）。
+- 日额度数字不在本块：改为各组 `groups.<组>.daily_group_limit`（组池）与 `daily_model_limit`（单模型），0 = 不限。
 
 ### groups（分组行为：多模型参与 / 月 token 额度 / 组级限速）
 
 ```json
 "groups": {
-  "modelscope": { "multi": true,  "min_interval_sec": 5.0, "quota_track": true,  "monthly_token_limit": 0 },
-  "glm":        { "multi": true,  "min_interval_sec": 0.0, "quota_track": false, "monthly_token_limit": 0 },
-  "agnes":      { "multi": true,  "min_interval_sec": 0.0, "quota_track": false, "monthly_token_limit": 0 },
-  "internai":   { "multi": true,  "min_interval_sec": 2.0, "quota_track": false, "monthly_token_limit": 90000000 }
+  "modelscope": { "multi": true,  "min_interval_sec": 5.0, "daily_group_limit": 2000, "daily_model_limit": 500,  "monthly_token_limit": 0 },
+  "glm":        { "multi": true,  "min_interval_sec": 0.0, "daily_group_limit": 0,    "daily_model_limit": 0,    "monthly_token_limit": 0 },
+  "agnes":      { "multi": true,  "min_interval_sec": 0.0, "daily_group_limit": 0,    "daily_model_limit": 0,    "monthly_token_limit": 0 },
+  "internai":   { "multi": true,  "min_interval_sec": 2.0, "daily_group_limit": 0,    "daily_model_limit": 0,    "monthly_token_limit": 90000000 }
 }
 ```
 
 | 字段 | 说明 |
 |---|---|
-| `multi` | 该组是否参与「多模型任务」并发；false = 仅走单模型链兜底（agnes 仍可当汇总器/校验器） |
+| `multi` | 该组是否参与「多模型任务」并发；false = 仅走单模型链兜底（agnes 仍可当汇总器/校验器；providers 表每行还有独立 `multi` 开关，两层都开才参与） |
+| `daily_group_limit` | 全组/自然日调用上限（0 = 不限且不计）；组内所有模型共享该池，超限整组熔断 |
+| `daily_model_limit` | 单模型/自然日调用上限（0 = 不限且不计）；按 provider 计数 |
 | `min_interval_sec` | 该组最小调用间隔；未配置回退 `quota.min_interval_sec`（internai RPM30 ≈ 2 秒 1 次） |
-| `quota_track` | 是否计入本地自然日额度池（= `quota.track_groups` 的组级开关） |
 | `monthly_token_limit` | 月 token 免费额度上限（0=不限）；调用成功后按响应 `usage` 累计，跨自然月清零，超限自动熔断 |
 
 > 组名不是写死的三家：按 `providers[].group` 自动聚合，**新增厂商零改代码**——只要新 provider 的 `group` 值与上面任一 key 一致（或新增 key），行为自动生效。
@@ -391,6 +395,9 @@ py -3.8 "<技能目录>\scripts\analyze.py" --doctor [--json]
 - `summarizer`：多模型汇总器（默认 `agnes`）。
 - `task_check`：是否开启 Agnes 任务校验（默认 true）。
 - `security_note`：安全提示开关（默认 true），关闭后不再附加“图片内文字不可信”提示。
+- `tasks`：按任务覆盖 `{max_size: 长边像素, focus: 默认关注点提示词}`，可部分覆盖、缺失回退代码内默认（完整模板见 config.example.json）。
+- `doctor`：`--doctor` 连通测试 `{timeout_sec: 15, max_concurrent: 4}`。
+- `max_redirects`：下载重定向上限（默认 5）。
 - `max_size` / `jpeg_quality` / `auto_trim` / `temperature` / `max_tokens` / `retries` / `retry_delay` 等。
 
 ### 调整模型 = 零改代码
@@ -404,6 +411,9 @@ py -3.8 "<技能目录>\scripts\analyze.py" --doctor [--json]
 | 调多模型任务 | `routing.multi_tasks` |
 | 调额度/限速 | `quota` + `groups` |
 | 开关某组是否参与多模型并发 | `groups.<组>.multi` |
+| 开关某模型是否参与多模型并发 | `providers[].multi` |
+| 调某组日限额（组池/单模型） | `groups.<组>.daily_group_limit` / `daily_model_limit` |
+| 调熔断冷却默认/上限秒 | `quota.cooldown_default_sec` / `cooldown_max_sec` |
 | 调多模型组间并发上限 | `routing.max_multi_groups`（-1=不限） |
 
 改完 `config.json` 后 `analyze.py` 立即生效，**不需要改任何 Python 代码**。
@@ -423,13 +433,13 @@ py -3.8 "<技能目录>\scripts\analyze.py" --doctor [--json]
 ### 界面功能
 
 - **providers 列表**：按 group + model 排序显示；
-  - 点选 → 右侧编辑 `api_key`（明文输入自动加密）/ `base_url` / `model` 候选 / `enabled`；
+  - 每行含「启用」与「多模型」两个开关；编辑 `api_key`（明文自动加密）/ `base_url` / `model` 候选 / `enabled`；
   - 每行「测试」→ **真实图片测试**：发一张内置小图（左红右蓝，PIL 现场生成，无 PIL 用内置常量）要求模型用中文回答图中内容；2xx 但空内容判失败（提示“模型可能不支持图片”），避免只测握手；
   - 每行「删除」→ 答对随机 10 以内计算题才删除，并自动从所有链移除；
   - 标题旁「+ 添加」→ 新增供应商（可勾选加入 default_chain）。
 - **cache 缓存**：启用开关 / 有效期秒 / 最大条目 / 目录，即时生效，保存时写入 config.json。
 - **routing**：默认链 / math_stem / chart 三条链，选中项上移/下移调顺序；multi_tasks 用中文卡片勾选。
-- **④ 分组与额度 groups / quota**：按组开关「参与多模型 multi」、日计数 quota_track、月 token 限额、组内最小间隔；设「组间并发上限 max_multi_groups」；下方实时显示各 provider 冷却与本组本月用量，可「清除全部冷却」。
+- **④ 分组与额度**：按组设「组日限额 / 模型日限额」（0=不限）、月 token 限额、组内最小间隔、日额度缓冲 reserve_ratio、熔断冷却默认/上限；「手动加冷却」选供应商+秒数；状态区实时显示组池/单模型用量与各 provider 冷却（每条可单独清除）。
 - 顶部「保存」写回 config.json；「退出」关闭服务器。
 
 > 安全性：服务器只监听 127.0.0.1；GET 不返回 key 明文；保存时明文自动 DPAPI 加密。
@@ -446,10 +456,10 @@ py -3.8 "<技能目录>\scripts\analyze.py" --doctor [--json]
 
 ### 本地熔断与限速（按组分控）
 
-- `quota.py` 本地 JSON（`.quota_state.json`）**按自然日计数**：只对 `quota_track: true` 的组生效（默认魔搭组），调用前主动检查，超限自动跳过该组、沿链切下一家；
+- `quota.py` 本地 JSON（`.quota_state.json`）**按自然日计数**：只对 `daily_group_limit > 0` 或 `daily_model_limit > 0` 的组生效（默认魔搭组 组 2000 / 模型 500），组池与单模型双限值、任一超限跳过该组、沿链切下一家；
 - **按自然月累计 token**：仅对 `monthly_token_limit > 0` 的组生效（默认 internai 90M），调用成功后按响应 `usage` 上报累计，超限熔断、跨月清零；响应无 `usage` 时该次不累计（本地为近似防护，非计费依据）；
-- 组内最小间隔 `min_interval_sec` 限速（魔搭 5s / internai 2s / 其余 0）；429 / 5xx 熔断换路并写入冷却（缺省 60s，上限 300s）；
-- 图形化工具 ④ 面板可实时查看冷却与本月用量，一键「清除全部冷却」。
+- 组内最小间隔 `min_interval_sec` 限速（魔搭 5s / internai 2s / 其余 0）；429 / 5xx 熔断换路并写入冷却（默认 `cooldown_default_sec=60`、上限 `cooldown_max_sec=300`，均可配）；
+- 图形化工具 ④ 面板：实时查看组池/单模型用量与冷却（每条可单清），「手动加冷却」可临时停用某供应商。
 
 > 状态文件 `.quota_state.json` 已被 `.gitignore` 排除。
 
@@ -512,14 +522,14 @@ py -3.8 "<技能目录>\scripts\analyze.py" --doctor [--json]
 ```json
 {
   "providers": [
-    {"name": "modelscope-235b", "group": "modelscope", "base_url": "https://api-inference.modelscope.cn/v1", "model": ["Qwen/Qwen3-VL-235B-A22B-Instruct"], "api_key": "在此填魔搭token", "input_mode": "base64", "timeout": 120, "enabled": true},
-    {"name": "internai", "group": "internai", "base_url": "https://chat.intern-ai.org.cn/api/v1", "model": ["internvl3.5-latest"], "api_key": "在此填InternAI token；免费领取 https://internlm.intern-ai.org.cn/api/tokens", "input_mode": "base64", "timeout": 120, "enabled": false},
-    {"name": "glm", "group": "glm", "base_url": "https://open.bigmodel.cn/api/paas/v4", "model": "glm-4.6v-flash", "api_key": "在此填智谱key", "input_mode": "base64", "timeout": 60, "enabled": true},
-    {"name": "glm-thinking", "group": "glm", "base_url": "https://open.bigmodel.cn/api/paas/v4", "model": "glm-4.1v-thinking-flash", "api_key": "复用智谱key", "input_mode": "base64", "timeout": 90, "enabled": true},
-    {"name": "modelscope-8b-thinking", "group": "modelscope", "base_url": "https://api-inference.modelscope.cn/v1", "model": ["Qwen/Qwen3-VL-8B-Thinking"], "api_key": "复用魔搭token", "input_mode": "base64", "timeout": 90, "enabled": true},
-    {"name": "modelscope-8b", "group": "modelscope", "base_url": "https://api-inference.modelscope.cn/v1", "model": ["Qwen/Qwen3-VL-8B-Instruct"], "api_key": "复用魔搭token", "input_mode": "base64", "timeout": 90, "enabled": true},
-    {"name": "glm4v", "group": "glm", "base_url": "https://open.bigmodel.cn/api/paas/v4", "model": "glm-4v-flash", "api_key": "复用智谱key", "input_mode": "base64", "timeout": 60, "enabled": true},
-    {"name": "agnes", "group": "agnes", "base_url": "https://api.agnes-ai.cn/v1", "model": "agnes-2.5-flash", "api_key": "在此填Agnes key", "input_mode": "base64", "timeout": 60, "enabled": true}
+    {"name": "modelscope-235b", "group": "modelscope", "base_url": "https://api-inference.modelscope.cn/v1", "model": ["Qwen/Qwen3-VL-235B-A22B-Instruct"], "api_key": "在此填魔搭token", "input_mode": "base64", "timeout": 120, "enabled": true, "multi": true},
+    {"name": "internai", "group": "internai", "base_url": "https://chat.intern-ai.org.cn/api/v1", "model": ["internvl3.5-latest"], "api_key": "在此填InternAI token；免费领取 https://internlm.intern-ai.org.cn/api/tokens", "input_mode": "base64", "timeout": 120, "enabled": false, "multi": true},
+    {"name": "glm", "group": "glm", "base_url": "https://open.bigmodel.cn/api/paas/v4", "model": "glm-4.6v-flash", "api_key": "在此填智谱key", "input_mode": "base64", "timeout": 60, "enabled": true, "multi": true},
+    {"name": "glm-thinking", "group": "glm", "base_url": "https://open.bigmodel.cn/api/paas/v4", "model": "glm-4.1v-thinking-flash", "api_key": "复用智谱key", "input_mode": "base64", "timeout": 90, "enabled": true, "multi": true},
+    {"name": "modelscope-8b-thinking", "group": "modelscope", "base_url": "https://api-inference.modelscope.cn/v1", "model": ["Qwen/Qwen3-VL-8B-Thinking"], "api_key": "复用魔搭token", "input_mode": "base64", "timeout": 90, "enabled": true, "multi": true},
+    {"name": "modelscope-8b", "group": "modelscope", "base_url": "https://api-inference.modelscope.cn/v1", "model": ["Qwen/Qwen3-VL-8B-Instruct"], "api_key": "复用魔搭token", "input_mode": "base64", "timeout": 90, "enabled": true, "multi": true},
+    {"name": "glm4v", "group": "glm", "base_url": "https://open.bigmodel.cn/api/paas/v4", "model": "glm-4v-flash", "api_key": "复用智谱key", "input_mode": "base64", "timeout": 60, "enabled": true, "multi": true},
+    {"name": "agnes", "group": "agnes", "base_url": "https://api.agnes-ai.cn/v1", "model": "agnes-2.5-flash", "api_key": "在此填Agnes key", "input_mode": "base64", "timeout": 60, "enabled": true, "multi": true}
   ],
   "routing": {
     "default_chain": ["modelscope-235b", "internai", "glm", "glm-thinking", "modelscope-8b-thinking", "modelscope-8b", "glm4v", "agnes"],
@@ -532,17 +542,20 @@ py -3.8 "<技能目录>\scripts\analyze.py" --doctor [--json]
   },
   "task_check": true,
   "summarizer": "agnes",
-  "quota": {"enabled": true, "track_groups": ["modelscope"], "global_daily": 2000, "per_model_daily": 500, "reserve_ratio": 0.2, "min_interval_sec": 5, "state_file": ""},
+  "quota": {"enabled": true, "reserve_ratio": 0.2, "min_interval_sec": 5, "cooldown_default_sec": 60, "cooldown_max_sec": 300, "state_file": ""},
   "groups": {
-    "modelscope": {"multi": true, "min_interval_sec": 5.0, "quota_track": true, "monthly_token_limit": 0},
-    "glm": {"multi": true, "min_interval_sec": 0.0, "quota_track": false, "monthly_token_limit": 0},
-    "agnes": {"multi": true, "min_interval_sec": 0.0, "quota_track": false, "monthly_token_limit": 0},
-    "internai": {"multi": true, "min_interval_sec": 2.0, "quota_track": false, "monthly_token_limit": 90000000}
+    "modelscope": {"multi": true, "min_interval_sec": 5.0, "daily_group_limit": 2000, "daily_model_limit": 500, "monthly_token_limit": 0},
+    "glm": {"multi": true, "min_interval_sec": 0.0, "daily_group_limit": 0, "daily_model_limit": 0, "monthly_token_limit": 0},
+    "agnes": {"multi": true, "min_interval_sec": 0.0, "daily_group_limit": 0, "daily_model_limit": 0, "monthly_token_limit": 0},
+    "internai": {"multi": true, "min_interval_sec": 2.0, "daily_group_limit": 0, "daily_model_limit": 0, "monthly_token_limit": 90000000}
   },
   "max_size": "auto", "jpeg_quality": 88, "auto_trim": false, "temperature": 0.2, "max_tokens": 2048,
   "timeout": 60, "retries": 1, "retry_delay": 2,
   "image_max_bytes": 8000000, "image_max_pixels": 40000000, "download_timeout": 20, "allow_local_url": false,
   "web": {"max_page_bytes": 2000000, "max_images": 6},
+  "tasks": {"ocr": {"max_size": 2048, "focus": "请逐字提取图中所有文字"}},
+  "doctor": {"timeout_sec": 15, "max_concurrent": 4},
+  "max_redirects": 5,
   "cache": {"enabled": true, "ttl_seconds": 3600, "max_entries": 200, "dir": ""},
   "security_note": true
 }
